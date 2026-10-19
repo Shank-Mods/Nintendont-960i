@@ -8,10 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    env:
-      DEVKITPRO: /opt/devkitpro
-      DEVKITPPC: /opt/devkitpro/devkitPPC
-      DEVKITARM: /opt/devkitpro/devkitARM
     steps:
       - uses: actions/checkout@v4
 
@@ -26,8 +22,9 @@ jobs:
           rc=$?
           cat "$log"
           if [ $rc -ne 0 ]; then
-            msg=$(grep -iE "error|undefined|fatal|not found|No such" "$log" | head -n 25)
+            msg=$(grep -iE "error|undefined|fatal|not found|No such|denied" "$log" | head -n 25)
             [ -z "$msg" ] && msg=$(tail -n 25 "$log")
+            [ -z "$msg" ] && msg="exit code $rc, no output"
             msg="${msg//'%'/'%25'}"; msg="${msg//$'\r'/}"; msg="${msg//$'\n'/'%0A'}"
             echo "::error title=$1 failed::$msg"
           fi
@@ -35,19 +32,29 @@ jobs:
           EOF
           chmod +x "$RUNNER_TEMP/run.sh"
 
-      - name: Install devkitPro (devkitPPC, devkitARM, libogc)
+      # devkitPro does not allow package downloads from CI, its Docker images
+      # are the supported way. devkitARM is copied out of its image and mounted
+      # into the devkitPPC image (both share the same base system).
+      - name: Get devkitPro toolchains
         run: |
           R="$RUNNER_TEMP/run.sh"
-          $R wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-devkitpro-pacman
-          chmod +x install-devkitpro-pacman
-          $R sudo ./install-devkitpro-pacman
-          $R sudo dkp-pacman -Sy --noconfirm --needed devkitPPC devkitARM libogc
-          sudo apt-get install -y zip > /dev/null
+          $R docker pull devkitpro/devkitppc:latest
+          $R docker pull devkitpro/devkitarm:latest
+          docker create --name dkarm devkitpro/devkitarm:latest
+          mkdir -p "$RUNNER_TEMP/dkp"
+          $R docker cp dkarm:/opt/devkitpro/devkitARM "$RUNNER_TEMP/dkp/devkitARM"
 
       - name: Build
         run: |
           chmod +x kernel/bin2h/bin2h
-          "$RUNNER_TEMP/run.sh" make
+          "$RUNNER_TEMP/run.sh" docker run --rm \
+            -v "$PWD":/src -w /src \
+            -v "$RUNNER_TEMP/dkp/devkitARM":/opt/devkitpro/devkitARM \
+            -e DEVKITPRO=/opt/devkitpro \
+            -e DEVKITPPC=/opt/devkitpro/devkitPPC \
+            -e DEVKITARM=/opt/devkitpro/devkitARM \
+            devkitpro/devkitppc:latest \
+            bash -c 'command -v zip >/dev/null || (apt-get update -qq && apt-get install -y -qq zip); make'
 
       - uses: actions/upload-artifact@v4
         with:
