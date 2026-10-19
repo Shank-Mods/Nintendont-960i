@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitppc:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install devkitARM and zip
+        run: |
+          dkp-pacman -Syu --noconfirm --needed devkitARM
+          apt-get update && apt-get install -y zip
+
+      - name: Build
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITPPC=$DEVKITPRO/devkitPPC
+          export DEVKITARM=$DEVKITPRO/devkitARM
+          make
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nintendont-boot-dol
+          path: nintendont/
