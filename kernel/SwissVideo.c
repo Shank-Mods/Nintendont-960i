@@ -583,6 +583,9 @@ static bool findx_patterns(u32 *data, int dataType, u32 offsetFoundAt, u32 lengt
 #ifndef SWISSVIDEO_HOST_TEST
 static char swv_logbuf[12 * 1024];
 static u32 swv_loglen = 0;
+/* Only echo to Nintendont's own log while patching. During gameplay its
+   file writes can collide with disc reads from the same device. */
+static u32 swv_echo = 0;
 
 static void swv_log(const char *fmt, ...)
 {
@@ -598,7 +601,8 @@ static void swv_log(const char *fmt, ...)
 		memcpy(swv_logbuf + swv_loglen, line, len);
 		swv_loglen += len;
 	}
-	dbgprintf("%s", line);
+	if (swv_echo)
+		dbgprintf("%s", line);
 }
 #else
 #define swv_log printf
@@ -707,6 +711,10 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	if (!Length)
 		return;
 
+#ifndef SWISSVIDEO_HOST_TEST
+	swv_echo = 1;
+	swv_loglen = 0;
+#endif
 	SwissVideoSetup();
 
 	/* clear the variable block the stubs use, Patch_Video() fills it */
@@ -722,6 +730,9 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	sync_after_write(Buffer, Length);
 	SwissVideoFlushVars();
 	SwissVideoClearSnapshot();
+#ifndef SWISSVIDEO_HOST_TEST
+	swv_echo = 0;
+#endif
 }
 
 #ifndef SWISSVIDEO_HOST_TEST

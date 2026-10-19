@@ -106,11 +106,13 @@ u32 PADRead(u32 calledByGame)
 	/* 960i diagnostics: snapshot the VI registers for the kernel log */
 	if(calledByGame && (((NIN_CFG*)0x93004000)->Config & NIN_CFG_960I))
 	{
+		/* VI registers are read 16 bits at a time (like the SDK does),
+		   but uncached MEM2 needs 32 bit stores */
 		vu16 *viSrc = (vu16*)0xCC002000;
-		vu16 *viDst = (vu16*)0xD3003200;
+		vu32 *viDst = (vu32*)0xD3003200;
 		u32 viReg;
-		for(viReg = 0; viReg < 0x40; ++viReg)
-			viDst[viReg] = viSrc[viReg];
+		for(viReg = 0; viReg < 0x20; ++viReg)
+			viDst[viReg] = ((u32)viSrc[viReg*2] << 16) | viSrc[viReg*2+1];
 	}
 
 	u32 WiiUGamepadSlot = ((NIN_CFG*)0x93004000)->WiiUGamepadSlot;
