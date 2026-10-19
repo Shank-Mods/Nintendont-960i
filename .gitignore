@@ -12,3 +12,4 @@ fatfs/*.a
 codehandler/*.h
 kernel/swissvideo/stubs/*.h
 kernel/swissvideo/test/swissvideo_test
+out/

@@ -66,6 +66,12 @@ $(TARGET): kernel.ld $(OBJECTS)
 
 # Ported Swiss code uses C99 constructs and only runs once per boot
 SwissVideo.o: CFLAGS += -std=gnu99 -Os
+# Swiss "AVE Compatibility" mode for 960i: AVE_RVL_COMPAT (default),
+# CMPV_DOL_COMPAT or GCVIDEO_COMPAT, e.g. make SWISSVIDEO_AVE=GCVIDEO_COMPAT
+ifneq ($(SWISSVIDEO_AVE),)
+SwissVideo.o: CFLAGS += -DSWISSVIDEO_AVE_COMPAT=$(SWISSVIDEO_AVE)
+SwissVideo.o: FORCE
+endif
 
 %.o : %.c
 	@echo  "CC	$@"

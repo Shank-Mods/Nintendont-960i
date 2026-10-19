@@ -99,6 +99,10 @@ enum aveCompat {
 	AVE_COMPAT_MAX
 };
 
+#ifndef SWISSVIDEO_AVE_COMPAT
+#define SWISSVIDEO_AVE_COMPAT AVE_RVL_COMPAT
+#endif
+
 #define SYS_VIDEO_NTSC	0
 #define SYS_VIDEO_PAL	1
 #define SYS_VIDEO_MPAL	2
@@ -615,7 +619,13 @@ static void SwissVideoSetup(void)
 	game_id[3] = GameID;
 
 	memset(&swissSettings, 0, sizeof(swissSettings));
-	swissSettings.aveCompat = AVE_RVL_COMPAT;
+	/*
+		Swiss' "AVE Compatibility" setting. Every mode except AVE-RVL also
+		sets the VI's non-interlaced (NIN) bit for 960i, so the encoder sees
+		a progressive signal. Selected at build time while testing which one
+		the Wii's encoder needs in Wii mode (make SWISSVIDEO_AVE=...).
+	*/
+	swissSettings.aveCompat = SWISSVIDEO_AVE_COMPAT;
 	swissSettings.sramVideo = (BI2region == BI2_REGION_PAL) ? SYS_VIDEO_PAL : SYS_VIDEO_NTSC;
 
 	swissSettings.gameVMode = 4;	/* 960i */
@@ -646,8 +656,8 @@ static void SwissVideoSetup(void)
 	/* Swiss initialises the VI with this mode before booting the game */
 	swiss_newmode.viTVMode = in_range(swissSettings.gameVMode, 4, 7) ? VI_TVMODE_NTSC_PROG : VI_TVMODE_PAL_PROG;
 
-	dbgprintf("SwissVideo:gameVMode %i (%s), sramVideo %i, 60Hz %i, progressive %i\r\n",
-		swissSettings.gameVMode, swissSettings.gameVMode == 4 ? "960i" : "1152i",
+	dbgprintf("SwissVideo:gameVMode %i (%s), aveCompat %i, sramVideo %i, 60Hz %i, progressive %i\r\n",
+		swissSettings.gameVMode, swissSettings.gameVMode == 4 ? "960i" : "1152i", swissSettings.aveCompat,
 		swissSettings.sramVideo, swissSettings.sram60Hz, swissSettings.sramProgressive);
 }
 

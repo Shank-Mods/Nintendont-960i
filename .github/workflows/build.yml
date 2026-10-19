@@ -74,9 +74,24 @@ jobs:
               fi
               $DEVKITPPC/bin/powerpc-eabi-gcc --version | head -1
               $DEVKITARM/bin/arm-none-eabi-gcc --version | head -1
-              make'
+              # One build per Swiss "AVE Compatibility" mode (960i testing)
+              for v in AVE_RVL GCVIDEO CMPV_DOL; do
+                make SWISSVIDEO_AVE=${v}_COMPAT
+                mkdir -p out/$v/apps
+                cp -r nintendont out/$v/apps/Nintendont
+              done'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nintendont-960i
-          path: nintendont/
+          name: nintendont-960i-AVE-RVL
+          path: out/AVE_RVL/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nintendont-960i-GCVideo
+          path: out/GCVIDEO/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nintendont-960i-CMPV-DOL
+          path: out/CMPV_DOL/
