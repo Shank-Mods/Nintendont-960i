@@ -1,0 +1,35 @@
+# Nintendont 960i - A/V encoder (AVE-RVL) experiments
+#
+# Copy this file to the ROOT of the drive Nintendont boots from.
+# Lines of the form RR=VV (hex register = hex value) are written to the
+# Wii's A/V encoder right before the game starts, in order. Lines starting
+# with # are ignored. Delete or rename this file to go back to normal.
+#
+# Enable ONE test at a time by removing the # in front of its line(s),
+# boot the game with 960i on and note what the monitor does.
+# Settings reset when the Wii is turned off or returns to the menu.
+#
+# For reference, libogc (and so the Nintendont menu) writes:
+#   6A=01 65=03 01=20 (component) 00=00 02=07 0A=00 03=01 04=01 6E=00
+#
+# --- Test 1: register 00 bit 0 ("A/V timings", reportedly D-Terminal mode)
+#00=01
+#
+# --- Test 2: register 02 = 1 (vertical blanking control, documented default)
+#02=01
+#
+# --- Test 3: register 02 = 0 (vertical blanking control, "D-Terminal")
+#02=00
+#
+# --- Test 4: tests 1 and 3 together (D-Terminal style)
+#00=01
+#02=00
+#
+# --- Test 5: register 0A = 1
+#0A=01
+#
+# --- Test 6: register 6A = 0
+#6A=00
+#
+# --- Test 7: register 65 = 1 (DAC oversampling)
+#65=01

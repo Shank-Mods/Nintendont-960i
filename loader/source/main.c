@@ -32,6 +32,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "exi.h"
 #include "dip.h"
 #include "global.h"
+#include "ave960i.h"
 #include "font.h"
 #include "FPad.h"
 #include "menu.h"
@@ -1207,6 +1208,10 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// 960i experiments: A/V encoder writes from /nin960i_ave.txt
+	if (ncfg->Config & NIN_CFG_960I)
+		AVE960iLoadFile();
+
 	//sync changes
 	CloseDevices();
 
@@ -1525,6 +1530,9 @@ int main(int argc, char **argv)
 		VIDEO_WaitVSync();
 	else while(VIDEO_GetNextField())
 		VIDEO_WaitVSync();
+
+	// 960i experiments: write the A/V encoder registers read earlier
+	AVE960iApply();
 
 	*(u16*)(0xCC00501A) = 156;	// DSP refresh rate
 	/* from libogc, get all gc pads to work */
