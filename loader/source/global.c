@@ -471,6 +471,9 @@ void UpdateNinCFG()
 		{
 			ncfg->WiiUGamepadSlot = 0;
 		}
+		// 960i mode, disabled by default
+		ncfg->Config &= ~NIN_CFG_960I;
+		ncfg->Version = 11;
 	}
 }
 

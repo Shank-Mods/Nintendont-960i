@@ -11,7 +11,7 @@ ifeq ($(strip $(DEVKITARM)),)
 $(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
 endif
 
-SUBPROJECTS := multidol kernel/asm resetstub \
+SUBPROJECTS := multidol kernel/asm kernel/swissvideo resetstub \
 	fatfs/libfat-arm.a fatfs/libfat-ppc.a \
 	codehandler kernel kernelboot \
 	loader/source/ppc/PADReadGC loader/source/ppc/IOSInterface loader
@@ -31,6 +31,12 @@ kernel/asm:
 	@echo "Building asm files"
 	@echo " "
 	$(MAKE) -C kernel/asm
+
+kernel/swissvideo:
+	@echo " "
+	@echo "Building Swiss video patch stubs"
+	@echo " "
+	$(MAKE) -C kernel/swissvideo
 
 resetstub:
 	@echo " "
@@ -56,7 +62,7 @@ codehandler:
 	@echo " "
 	$(MAKE) -C codehandler
 
-kernel: kernel/asm fatfs/libfat-arm.a codehandler
+kernel: kernel/asm kernel/swissvideo fatfs/libfat-arm.a codehandler
 	@echo " "
 	@echo "Building Nintendont kernel"
 	@echo " "
@@ -92,6 +98,7 @@ clean:
 	@echo " "
 	$(MAKE) -C multidol clean
 	$(MAKE) -C kernel/asm clean
+	$(MAKE) -C kernel/swissvideo clean
 	$(MAKE) -C resetstub clean
 	$(MAKE) -C fatfs -f Makefile.arm clean
 	$(MAKE) -C fatfs -f Makefile.ppc clean

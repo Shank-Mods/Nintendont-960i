@@ -1,6 +1,7 @@
 // Nintendont: SRAM functions.
 #include "SRAM.h"
 #include "Config.h"
+#include "SwissVideo.h"
 #include "debug.h"
 
 // Initial SRAM values.
@@ -83,6 +84,9 @@ void SRAM_Init(void)
 		sram.BootMode |= 0x40;
 
 		// TODO: Set the progressive scan flag on PAL?
+		// 960i mode: Swiss enables progressive scan for PAL games too.
+		if (SwissVideoEnabled())
+			sram.Flags |= 0x80;
 	}
 	else
 	{

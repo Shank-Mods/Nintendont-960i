@@ -38,6 +38,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "codehandler.h"
 #include "codehandleronly.h"
 #include "ff_utf8.h"
+#include "SwissVideo.h"
 
 //#define DEBUG_DSP  // Very slow!! Replace with raw dumps?
 
@@ -1686,8 +1687,15 @@ void DoPatches( char *Buffer, u32 Length, u32 DiscOffset )
 		);
 	}*/
 #endif
+	/* 960i: Swiss' video patches replace all of Nintendont's video patches */
+	const bool swissVideo = SwissVideoEnabled() && !useipl && TRIGame == TRI_NONE;
 	u32 videoPatches = 0;
-	if( ConfigGetConfig(NIN_CFG_FORCE_PROG) || (ConfigGetVideoMode() & NIN_VID_FORCE) ||
+	if( swissVideo )
+	{
+		dbgprintf("Patch:960i mode, using Swiss video patches\r\n");
+		SwissVideoPatch( Buffer, Length );
+	}
+	else if( ConfigGetConfig(NIN_CFG_FORCE_PROG) || (ConfigGetVideoMode() & NIN_VID_FORCE) ||
 		(ConfigGetVideoOffset() != 0 && ConfigGetVideoOffset() >= -20 && ConfigGetVideoOffset() <= 20) ||
 		(ConfigGetVideoScale() != 0 && ConfigGetVideoScale() >= 40 && ConfigGetVideoScale() <= 120) )
 	{

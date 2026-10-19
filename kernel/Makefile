@@ -36,7 +36,7 @@ OBJECTS	:= start.o common.o alloc.o GCAM.o JVSIO.o JVSIOMessage.o FST.o DI.o Rea
 	   Patch.o PatchTimers.o TRI.o PatchWidescreen.o ISO.o Stream.o adp.o \
 	   EXI.o SRAM.o GCNCard.o SI.o HID.o diskio.o Config.o utils_asm.o ES.o NAND.o \
 	   main.o syscalls.o ReadSpeed.o vsprintf.o string.o prs.o \
-	   SDI.o usb.o usbstorage.o wdvd.o sock.o
+	   SDI.o usb.o usbstorage.o wdvd.o sock.o SwissVideo.o
 LIBS	:= ../fatfs/libfatfs-arm.a be/libc.a be/libgcc.a
 ZIPFILE	:= ../loader/data/kernel.zip
 
@@ -63,6 +63,9 @@ $(TARGET): kernel.ld $(OBJECTS)
 %.o: %.S
 	@echo  "AS	$@"
 	@$(CC) $(CFLAGS) $(CPPFLAGS) -D_LANGUAGE_ASSEMBLY -c -MMD -MP -MF $(@:.o=.d) -x assembler-with-cpp -o $@ $<
+
+# Ported Swiss code uses C99 constructs and only runs once per boot
+SwissVideo.o: CFLAGS += -std=gnu99 -Os
 
 %.o : %.c
 	@echo  "CC	$@"

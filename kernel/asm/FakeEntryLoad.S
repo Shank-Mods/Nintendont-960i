@@ -35,6 +35,11 @@ InvalidateRange2:
 	addi	r4,	r4,	0x20
 	bdnz	InvalidateRange2
 
+	#960i mode variables (kernel/swissvideo/reservedarea.h)
+	lis		r4,	0x8000
+	ori		r4,	r4,	0x09E0
+	dcbi	0,	r4
+
 	sync
 	isync
 

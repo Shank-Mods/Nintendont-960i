@@ -1397,7 +1397,11 @@ int main(int argc, char **argv)
 	u32 vidForce = (ncfg->VideoMode & NIN_VID_FORCE);
 	u32 vidForceMode = (ncfg->VideoMode & NIN_VID_FORCE_MASK);
 
-	progressive = (ncfg->Config & NIN_CFG_FORCE_PROG)
+	// 960i mode uses progressive timings and needs an EDTV capable output,
+	// the kernel disables it otherwise (see kernel/SwissVideo.c).
+	bool mode960i = (ncfg->Config & NIN_CFG_960I) && !IsWiiU()
+		&& (ncfg->VideoMode & NIN_VID_PROG);
+	progressive = ((ncfg->Config & NIN_CFG_FORCE_PROG) || mode960i)
 		&& !useipl && !useipltri;
 
 	switch (BI2region)
@@ -1481,6 +1485,9 @@ int main(int argc, char **argv)
 			sram->ntd |= 0x40;
 
 			// TODO: Set the progressive scan flag on PAL?
+			// 960i mode: Swiss enables progressive scan for PAL games too.
+			if (mode960i)
+				sram->flags |= 0x80;
 		}
 		else
 		{

@@ -1097,6 +1097,23 @@ static const char *const *GetSettingsDescription(const MenuCtx *ctx)
 				return desc_skip_netprof;
 			}
 
+			case 9: {
+				// 960i (Swiss field rendering)
+				static const char *desc_960i[] = {
+					"Forces field rendering and",
+					"outputs 960i (1152i for",
+					"some PAL games), doubling",
+					"the vertical resolution.",
+					"",
+					"Requires component cables,",
+					"progressive scan enabled in",
+					"the Wii settings and a TV or",
+					"scaler that accepts 960i.",
+					NULL
+				};
+				return desc_960i;
+			}
+
 			default:
 				break;
 		}
@@ -1106,6 +1123,17 @@ static const char *const *GetSettingsDescription(const MenuCtx *ctx)
 	return NULL;
 }
 
+
+/**
+ * Check if the 960i mode can be used.
+ * It uses progressive timings, so like Swiss it needs an EDTV
+ * capable output. The Wii U can not output it at all.
+ * @return True if 960i can be used.
+ */
+static bool Is960iAvailable(void)
+{
+	return !IsWiiU() && (CONF_GetProgressiveScan() > 0) && VIDEO_HaveComponentCable();
+}
 
 /**
  * Update the Settings menu.
@@ -1153,7 +1181,7 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 
 		// Check for wraparound.
 		if ((ctx->settings.settingPart == 0 && ctx->settings.posX >= NIN_SETTINGS_LAST) ||
-		    (ctx->settings.settingPart == 1 && ctx->settings.posX >= 9))
+		    (ctx->settings.settingPart == 1 && ctx->settings.posX >= 10))
 		{
 			ctx->settings.posX = 0;
 			ctx->settings.settingPart ^= 1;
@@ -1180,7 +1208,7 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 			if (ctx->settings.settingPart == 0) {
 				ctx->settings.posX = NIN_SETTINGS_LAST - 1;
 			} else {
-				ctx->settings.posX = 8;
+				ctx->settings.posX = 9;
 			}
 		}
 
@@ -1437,6 +1465,13 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 					ctx->redraw = true;
 					break;
 
+				case 9:
+					// 960i (Swiss field rendering)
+					ctx->saveSettings = true;
+					ncfg->Config ^= (NIN_CFG_960I);
+					ctx->redraw = true;
+					break;
+
 				default:
 					break;
 			}
@@ -1629,6 +1664,12 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 		}
 		ListLoopIndex++;
 
+		// 960i (Swiss field rendering), needs an EDTV capable output.
+		PrintFormat(MENU_SIZE, Is960iAvailable() ? BLACK : DARK_GRAY,
+				MENU_POS_X + 320, SettingY(ListLoopIndex),
+			    "%-18s:%-4s", "960i Field Render", (ncfg->Config & (NIN_CFG_960I)) ? "On " : "Off");
+		ListLoopIndex++;
+
 		// Draw the cursor.
 		u32 cursor_color = BLACK;
 		if (ctx->settings.settingPart == 0) {
@@ -1643,6 +1684,8 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 		} else {
 			if((IsWiiU() || !(ncfg->Config & (NIN_CFG_BBA_EMU))) && ctx->settings.posX == 7)
 				cursor_color = DARK_GRAY;
+			if(!Is960iAvailable() && ctx->settings.posX == 9)
+				cursor_color = DARK_GRAY;
 			PrintFormat(MENU_SIZE, cursor_color, MENU_POS_X + 300, SettingY(ctx->settings.posX), ARROW_RIGHT);
 		}
 
@@ -1652,7 +1695,7 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 		const char *const *desc = GetSettingsDescription(ctx);
 		if (desc != NULL)
 		{
-			int line_num = 9;
+			int line_num = 10;
 			do {
 				if (**desc != 0)
 				{
