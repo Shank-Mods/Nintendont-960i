@@ -29,6 +29,8 @@ GNU General Public License for more details.
 #include "debug.h"
 #include "Config.h"
 #include "syscalls.h"
+#include "vsprintf.h"
+#include "ff_utf8.h"
 #else
 #include "swissvideo/test/host_env.h"
 #endif
@@ -38,6 +40,10 @@ GNU General Public License for more details.
 
 /* From Patch.c */
 extern u32 PatchCopy(const u8 *PatchPtr, const u32 PatchSize);
+
+#ifndef SWISSVIDEO_HOST_TEST
+static void swv_log(const char *fmt, ...);
+#endif
 
 /*
 	Where MEM1 (0x80000000) is mapped for the code running this patcher.
@@ -293,7 +299,7 @@ static void *getPatchAddr(int patchId)
 	if (!patch_locations[patchId]) {
 		u32 phys = PatchCopy(patch_table[patchId].patch, patch_table[patchId].size);
 		patch_locations[patchId] = (void *)(0x80000000 | (phys - MEM1_BASE));
-		dbgprintf("SwissVideo:Installed patch %i to %08X\r\n", patchId, patch_locations[patchId]);
+		swv_log("SwissVideo:Installed patch %i to %08X\r\n", patchId, patch_locations[patchId]);
 	}
 	return patch_locations[patchId];
 }
@@ -571,8 +577,40 @@ static bool findx_patterns(u32 *data, int dataType, u32 offsetFoundAt, u32 lengt
 }
 
 /* ------------------------------------------------------------------------ */
+/* 960i diagnostics log (written to /nin960i.log)                           */
+/* ------------------------------------------------------------------------ */
+
+#ifndef SWISSVIDEO_HOST_TEST
+static char swv_logbuf[12 * 1024];
+static u32 swv_loglen = 0;
+
+static void swv_log(const char *fmt, ...)
+{
+	char line[0x100];
+	va_list args;
+	u32 len;
+
+	va_start(args, fmt);
+	len = _vsprintf(line, fmt, args);
+	va_end(args);
+
+	if (swv_loglen + len < sizeof(swv_logbuf)) {
+		memcpy(swv_logbuf + swv_loglen, line, len);
+		swv_loglen += len;
+	}
+	dbgprintf("%s", line);
+}
+#else
+#define swv_log printf
+#endif
+
+/* ------------------------------------------------------------------------ */
 /* Imported Swiss code                                                      */
 /* ------------------------------------------------------------------------ */
+
+/* Swiss' "Found:[...]" messages also go to the 960i log */
+#undef dbgprintf
+#define dbgprintf swv_log
 
 #include "swissvideo/video_tables.inc"
 #include "swissvideo/Patch_Video.inc"
@@ -689,20 +727,44 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 #ifndef SWISSVIDEO_HOST_TEST
 /*
 	960i diagnostics. PADRead (loader/source/ppc/PADReadGC) copies the VI
-	registers to VI_SNAPSHOT every frame while the game runs; this logs
-	them every few seconds so they can be compared with Swiss.
+	registers to VI_SNAPSHOT every frame while the game runs. Every few
+	seconds they are added to the 960i log, which is (re)written to
+	/nin960i.log on the boot device. This doesn't depend on Nintendont's
+	own Log option, which doesn't work on every setup.
 */
 #define VI_SNAPSHOT		0x13003200
 #define VI_LOG_INTERVAL	(1898437 * 3)	/* ~3 seconds */
 #define VI_LOG_MAX		10
 
-static u32 viLogTimer = 0, viLogCount = 0;
+extern bool DI_IRQ;
+
+static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;
+
+static void SwissVideoWriteLog(void)
+{
+	FIL f;
+	UINT wrote;
+
+	if (f_open_char(&f, "/nin960i.log", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
+		return;
+	f_write(&f, swv_logbuf, swv_loglen, &wrote);
+	f_close(&f);
+}
 
 void SwissVideoLogVI(void)
 {
 	u32 i, nonzero = 0;
 
-	if (viLogCount >= VI_LOG_MAX || !ConfigGetConfig(NIN_CFG_LOG) || !SwissVideoEnabled())
+	if (!SwissVideoEnabled())
+		return;
+
+	/* only touch the file system while no disc read is in flight */
+	if (viLogPending && DI_IRQ == false) {
+		SwissVideoWriteLog();
+		viLogPending = 0;
+	}
+
+	if (viLogCount >= VI_LOG_MAX)
 		return;
 	if (viLogTimer == 0) {
 		viLogTimer = read32(HW_TIMER);
@@ -719,14 +781,15 @@ void SwissVideoLogVI(void)
 		return;	/* game not running yet */
 
 	viLogCount++;
-	dbgprintf("SwissVideo:VI regs #%u\r\n", viLogCount);
+	swv_log("SwissVideo:VI regs #%u\r\n", viLogCount);
 	for (i = 0; i < 0x80; i += 0x10) {
-		dbgprintf("VI %02X: %04X %04X %04X %04X %04X %04X %04X %04X\r\n", i,
+		swv_log("VI %02X: %04X %04X %04X %04X %04X %04X %04X %04X\r\n", i,
 			read16(VI_SNAPSHOT + i + 0x0), read16(VI_SNAPSHOT + i + 0x2),
 			read16(VI_SNAPSHOT + i + 0x4), read16(VI_SNAPSHOT + i + 0x6),
 			read16(VI_SNAPSHOT + i + 0x8), read16(VI_SNAPSHOT + i + 0xA),
 			read16(VI_SNAPSHOT + i + 0xC), read16(VI_SNAPSHOT + i + 0xE));
 	}
+	viLogPending = 1;
 }
 
 static void SwissVideoClearSnapshot(void)
@@ -737,6 +800,7 @@ static void SwissVideoClearSnapshot(void)
 	sync_after_write((void *)VI_SNAPSHOT, 0x80);
 	viLogTimer = 0;
 	viLogCount = 0;
+	viLogPending = 1;	/* write the patch log right away */
 }
 #else
 static void SwissVideoClearSnapshot(void) {}
