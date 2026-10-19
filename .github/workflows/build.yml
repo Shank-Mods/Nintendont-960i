@@ -60,7 +60,7 @@ jobs:
               # warnings into errors. -fpermissive turns them back into warnings.
               for g in /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc /opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc; do
                 [ -e "$g.real" ] || mv "$g" "$g.real"
-                printf "#!/bin/sh\nexec \"%s.real\" -fpermissive -Wno-error \"\$@\"\n" "$g" > "$g"
+                printf "#!/bin/sh\nexec \"%s.real\" \"\$@\" -fpermissive -Wno-error\n" "$g" > "$g"
                 chmod +x "$g"
               done
               make'
