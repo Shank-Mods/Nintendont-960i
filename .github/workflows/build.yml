@@ -86,7 +86,7 @@ jobs:
                 cp -r nintendont "$dir"
                 sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i ($label)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>960i test build, Swiss AVE mode: $label</short_description>|" "$dir/meta.xml"
                 grep "<name>" "$dir/meta.xml"
-                cp kernel/swissvideo/ave/nin960i_ave.txt out/$id/
+                cp kernel/swissvideo/ave/nin960i_ave.txt kernel/swissvideo/ave/nin960i_vi.txt out/$id/
               done'
 
       - uses: actions/upload-artifact@v4

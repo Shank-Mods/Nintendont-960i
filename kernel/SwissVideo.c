@@ -625,6 +625,119 @@ static void SwissVideoClearSnapshot(void);
 /* Nintendont interface                                                     */
 /* ------------------------------------------------------------------------ */
 
+/*
+	960i experiments: override fields of the 960i/1152i timing table from
+	/nin960i_vi.txt on the boot device. One "name=value" (decimal) per line,
+	# starts a comment. Field names and offsets follow the SDK/libogc
+	timing struct (see video_timing_960i):
+*/
+static const struct {
+	const char *name;
+	u8 offset;
+	u8 size;
+} swv_timing_fields[] = {
+	{ "equ",      0, 1 }, { "acv",      2, 2 },
+	{ "prbodd",   4, 2 }, { "prbeven",  6, 2 },
+	{ "psbodd",   8, 2 }, { "psbeven", 10, 2 },
+	{ "bs1",     12, 1 }, { "bs2",     13, 1 }, { "bs3", 14, 1 }, { "bs4", 15, 1 },
+	{ "be1",     16, 2 }, { "be2",     18, 2 }, { "be3", 20, 2 }, { "be4", 22, 2 },
+	{ "nhlines", 24, 2 }, { "hlw",     26, 2 },
+	{ "hsy",     28, 1 }, { "hcs",     29, 1 }, { "hce", 30, 1 }, { "hbe640", 31, 1 },
+	{ "hbs640",  32, 2 },
+};
+
+static u32 swv_get(const u8 *t, u32 i)
+{
+	const u8 *p = t + swv_timing_fields[i].offset;
+	return swv_timing_fields[i].size == 1 ? p[0] : ((u32)p[0] << 8) | p[1];
+}
+
+static void swv_set(u8 *t, u32 i, u32 v)
+{
+	u8 *p = t + swv_timing_fields[i].offset;
+	if (swv_timing_fields[i].size == 1)
+		p[0] = v;
+	else {
+		p[0] = v >> 8;
+		p[1] = v;
+	}
+}
+
+static void swv_log_timing(const char *what, const u8 *t)
+{
+	u32 equ = t[0], acv = swv_get(t, 1);
+	swv_log("SwissVideo:%s equ %u acv %u prb %u/%u psb %u/%u nhlines %u hlw %u\r\n", what,
+		equ, acv, swv_get(t, 2), swv_get(t, 3), swv_get(t, 4), swv_get(t, 5),
+		swv_get(t, 14), swv_get(t, 15));
+	swv_log("SwissVideo:%s frame length odd %u / even %u half-lines\r\n", what,
+		3 * equ + swv_get(t, 2) + 2 * acv + swv_get(t, 4),
+		3 * equ + swv_get(t, 3) + 2 * acv + swv_get(t, 5));
+}
+
+#ifndef SWISSVIDEO_HOST_TEST
+static void SwissVideoTimingOverrides(void)
+{
+	u8 *t = (swissSettings.gameVMode == 11) ? video_timing_1152i : video_timing_960i;
+	char buf[1024], name[16];
+	FIL f;
+	UINT read = 0;
+	u32 i, j, n;
+
+	swv_log_timing("default", t);
+	if (f_open_char(&f, "/nin960i_vi.txt", FA_READ | FA_OPEN_EXISTING) != FR_OK)
+		return;
+	f_read(&f, buf, sizeof(buf) - 1, &read);
+	f_close(&f);
+	buf[read] = 0;
+
+	for (i = 0; i < read; ) {
+		/* one line: name=value */
+		while (i < read && (buf[i] == ' ' || buf[i] == '\t' || buf[i] == '\r' || buf[i] == '\n'))
+			i++;
+		if (i >= read)
+			break;
+		if (buf[i] == '#') {
+			while (i < read && buf[i] != '\n') i++;
+			continue;
+		}
+		n = 0;
+		while (i < read && buf[i] != '=' && buf[i] != '\n' && n < sizeof(name) - 1) {
+			char c = buf[i++];
+			if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+			if (c != ' ') name[n++] = c;
+		}
+		name[n] = 0;
+		if (i >= read || buf[i] != '=') {
+			while (i < read && buf[i] != '\n') i++;
+			continue;
+		}
+		i++;
+		n = 0;
+		while (i < read && buf[i] >= '0' && buf[i] <= '9')
+			n = n * 10 + (buf[i++] - '0');
+		while (i < read && buf[i] != '\n') i++;
+
+		if (strcmp(name, "avecompat") == 0) {
+			swissSettings.aveCompat = n;
+			swv_log("SwissVideo:override aveCompat = %u\r\n", n);
+			continue;
+		}
+		for (j = 0; j < countof(swv_timing_fields); j++) {
+			if (strcmp(name, swv_timing_fields[j].name) == 0) {
+				swv_set(t, j, n);
+				swv_log("SwissVideo:override %s = %u\r\n", name, n);
+				break;
+			}
+		}
+		if (j == countof(swv_timing_fields))
+			swv_log("SwissVideo:unknown setting %s\r\n", name);
+	}
+	swv_log_timing("override", t);
+}
+#else
+static void SwissVideoTimingOverrides(void) {}
+#endif
+
 /* Games Swiss forces to the 50Hz variant of the selected mode (960i -> 1152i) */
 static const char gameVModePalEntries[][4] = {
 	"DLSP", "G3FD", "G3FF", "G3FP", "G3FS", "GLRD", "GLRF", "GLRP",
@@ -716,6 +829,7 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	swv_loglen = 0;
 #endif
 	SwissVideoSetup();
+	SwissVideoTimingOverrides();
 
 	/* clear the variable block the stubs use, Patch_Video() fills it */
 	u32 off;

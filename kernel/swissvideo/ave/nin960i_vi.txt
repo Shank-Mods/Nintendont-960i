@@ -1,0 +1,37 @@
+# Nintendont 960i - video timing experiments
+#
+# Copy this file to the ROOT of the drive Nintendont boots from.
+# Each "name=value" line (decimal) overrides one field of the 960i timing
+# table before the game is patched. Lines starting with # are ignored.
+# Delete or rename this file to use Swiss's 960i timing unchanged.
+# nin960i.log shows the timing that was used and the resulting frame length.
+#
+# Swiss's 960i timing (the default):
+#   equ=12 acv=480 prbodd=48 prbeven=49 psbodd=5 psbeven=4
+#   nhlines=1049 hlw=429
+# Frame length in half-lines = 3*equ + prb + 2*acv + psb
+#   960i: 36 + 48 + 960 + 5 = 1049   (524.5 lines, interlaces)
+#   480p: 1050                        (525 lines)
+# Keep nhlines equal to the frame length.
+#
+# Enable ONE experiment at a time by removing the # from its lines.
+#
+# --- Experiment A: exact 480p frame length, 1050 half-lines
+# Expected to lock if the half line is the problem (but won't interlace).
+#psbodd=6
+#psbeven=5
+#nhlines=1050
+#
+# --- Experiment B: 1052 half-lines (526 lines)
+# Locks   -> the encoder follows the Wii's frame length, only the half line
+#            is a problem.
+# Rolls faster than now -> the encoder counts its own 525 lines.
+#psbodd=8
+#psbeven=7
+#nhlines=1052
+#
+# --- Experiment C: 1051 half-lines (525.5 lines, interlaces the other way)
+# Compare roll direction and speed with the default (1049).
+#psbodd=7
+#psbeven=6
+#nhlines=1051

@@ -12,7 +12,11 @@
 # For reference, libogc (and so the Nintendont menu) writes:
 #   6A=01 65=03 01=20 (component) 00=00 02=07 0A=00 03=01 04=01 6E=00
 #
-# --- Test 1: register 00 bit 0 ("A/V timings", reportedly D-Terminal mode)
+# Results so far: 00=01 shows the encoder's color bar test pattern,
+# 02, 0A, 6A and 65 changes made no visible difference.
+# Do NOT try 01=23: that is RVLoader's VGA mode (RGB output, component off).
+#
+# --- Test 1: register 00 bit 0 -> encoder test pattern (color bars)
 #00=01
 #
 # --- Test 2: register 02 = 1 (vertical blanking control, documented default)

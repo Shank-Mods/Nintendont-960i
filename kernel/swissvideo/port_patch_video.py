@@ -36,7 +36,7 @@ func = src[start:end + 1]
 tstart = find_line(lambda l: l.startswith('u8 video_timing[] = {'))
 tables = src[tstart:start]
 tables = [l for l in tables if not l.startswith('extern GXRModeObj *newmode')]
-tables = ['static const ' + l if re.match(r'^u8 \w+\[', l) else l for l in tables]
+tables = ['static ' + l if re.match(r'^u8 \w+\[', l) else l for l in tables]
 
 out = []
 sigs = []  # (name, is_array)
