@@ -7,24 +7,49 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container: devkitpro/devkitppc:latest
+    runs-on: ubuntu-24.04
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+      DEVKITARM: /opt/devkitpro/devkitARM
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install devkitARM and zip
+      # Runs a command, and on failure posts the end of its output as an
+      # error annotation so it is visible without downloading the logs.
+      - name: Set up helper
         run: |
-          dkp-pacman -Syu --noconfirm --needed devkitARM
-          apt-get update && apt-get install -y zip
+          cat > "$RUNNER_TEMP/run.sh" <<'EOF'
+          #!/bin/bash
+          log="$RUNNER_TEMP/step.log"
+          "$@" > "$log" 2>&1
+          rc=$?
+          cat "$log"
+          if [ $rc -ne 0 ]; then
+            msg=$(grep -iE "error|undefined|fatal|not found|No such" "$log" | head -n 25)
+            [ -z "$msg" ] && msg=$(tail -n 25 "$log")
+            msg="${msg//'%'/'%25'}"; msg="${msg//$'\r'/}"; msg="${msg//$'\n'/'%0A'}"
+            echo "::error title=$1 failed::$msg"
+          fi
+          exit $rc
+          EOF
+          chmod +x "$RUNNER_TEMP/run.sh"
+
+      - name: Install devkitPro (devkitPPC, devkitARM, libogc)
+        run: |
+          R="$RUNNER_TEMP/run.sh"
+          $R wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-devkitpro-pacman
+          chmod +x install-devkitpro-pacman
+          $R sudo ./install-devkitpro-pacman
+          $R sudo dkp-pacman -Sy --noconfirm --needed devkitPPC devkitARM libogc
+          sudo apt-get install -y zip > /dev/null
 
       - name: Build
         run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITPPC=$DEVKITPRO/devkitPPC
-          export DEVKITARM=$DEVKITPRO/devkitARM
-          make
+          chmod +x kernel/bin2h/bin2h
+          "$RUNNER_TEMP/run.sh" make
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nintendont-boot-dol
+          name: nintendont-960i
           path: nintendont/
