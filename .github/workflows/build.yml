@@ -75,10 +75,16 @@ jobs:
               $DEVKITPPC/bin/powerpc-eabi-gcc --version | head -1
               $DEVKITARM/bin/arm-none-eabi-gcc --version | head -1
               # One build per Swiss "AVE Compatibility" mode (960i testing)
-              for v in AVE_RVL GCVIDEO CMPV_DOL; do
-                make SWISSVIDEO_AVE=${v}_COMPAT
-                mkdir -p out/$v/apps
-                cp -r nintendont out/$v/apps/Nintendont
+              # Each goes in its own folder with its own Homebrew Channel name,
+              # so all three can be installed side by side.
+              for v in AVE_RVL:AVE-RVL GCVIDEO:GCVideo CMPV_DOL:CMPV-DOL; do
+                id=${v%%:*}; label=${v#*:}
+                make SWISSVIDEO_AVE=${id}_COMPAT
+                dir=out/$id/apps/Nintendont-960i-$label
+                mkdir -p out/$id/apps
+                cp -r nintendont "$dir"
+                sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i ($label)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>960i test build, Swiss AVE mode: $label</short_description>|" "$dir/meta.xml"
+                grep "<name>" "$dir/meta.xml"
               done'
 
       - uses: actions/upload-artifact@v4
