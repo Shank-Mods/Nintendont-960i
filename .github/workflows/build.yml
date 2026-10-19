@@ -33,36 +33,41 @@ jobs:
           chmod +x "$RUNNER_TEMP/run.sh"
 
       # devkitPro does not allow package downloads from CI, its Docker images
-      # are the supported way. devkitARM is copied out of its image and mounted
-      # into the devkitPPC image (both share the same base system).
+      # are the supported way. Nintendont's README asks for devkitPPC r35-2,
+      # libOGC 1.8.23-1 and devkitARM r53-1 (newer ones build a loader that
+      # crashes). The closest images are devkitPPC r34-1 + libOGC 1.8.21-1
+      # (devkitppc:20190212) and devkitARM r54-3 (devkitarm:20200528).
+      # The PPC toolchain and libOGC are copied out and mounted into the
+      # devkitARM container.
       - name: Get devkitPro toolchains
         run: |
           R="$RUNNER_TEMP/run.sh"
-          $R docker pull devkitpro/devkitppc:latest
-          $R docker pull devkitpro/devkitarm:latest
-          docker create --name dkarm devkitpro/devkitarm:latest
+          $R docker pull devkitpro/devkitppc:20190212
+          $R docker pull devkitpro/devkitarm:20200528
+          docker create --name dkppc devkitpro/devkitppc:20190212
           mkdir -p "$RUNNER_TEMP/dkp"
-          $R docker cp dkarm:/opt/devkitpro/devkitARM "$RUNNER_TEMP/dkp/devkitARM"
+          for d in devkitPPC libogc tools; do
+            $R docker cp dkppc:/opt/devkitpro/$d "$RUNNER_TEMP/dkp/$d"
+          done
 
       - name: Build
         run: |
           chmod +x kernel/bin2h/bin2h
           "$RUNNER_TEMP/run.sh" docker run --rm \
             -v "$PWD":/src -w /src \
-            -v "$RUNNER_TEMP/dkp/devkitARM":/opt/devkitpro/devkitARM \
+            -v "$RUNNER_TEMP/dkp/devkitPPC":/opt/devkitpro/devkitPPC \
+            -v "$RUNNER_TEMP/dkp/libogc":/opt/devkitpro/libogc \
+            -v "$RUNNER_TEMP/dkp/tools":/opt/devkitpro/ppctools \
             -e DEVKITPRO=/opt/devkitpro \
             -e DEVKITPPC=/opt/devkitpro/devkitPPC \
             -e DEVKITARM=/opt/devkitpro/devkitARM \
-            devkitpro/devkitppc:latest \
+            devkitpro/devkitarm:20200528 \
             bash -c 'set -e
+              # elf2dol and friends from the devkitPPC image
+              cp -n /opt/devkitpro/ppctools/bin/* /opt/devkitpro/tools/bin/ 2>/dev/null || true
               command -v zip >/dev/null || (apt-get update -qq && apt-get install -y -qq zip)
-              # Nintendont predates GCC 14/15, which turned several old C
-              # warnings into errors. -fpermissive turns them back into warnings.
-              for g in /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc /opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc; do
-                [ -e "$g.real" ] || mv "$g" "$g.real"
-                printf "#!/bin/sh\nexec \"%s.real\" \"\$@\" -fpermissive -Wno-error\n" "$g" > "$g"
-                chmod +x "$g"
-              done
+              $DEVKITPPC/bin/powerpc-eabi-gcc --version | head -1
+              $DEVKITARM/bin/arm-none-eabi-gcc --version | head -1
               make'
 
       - uses: actions/upload-artifact@v4
