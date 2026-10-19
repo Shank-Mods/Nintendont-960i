@@ -25,6 +25,9 @@ bool SwissVideoEnabled(void);
 /* Patches the loaded game executable (DOL/ELF image already in place). */
 void SwissVideoPatch(char *Buffer, u32 Length);
 
+/* Logs the VI registers captured by PADRead (diagnostics), call regularly. */
+void SwissVideoLogVI(void);
+
 /* Flushes the low memory variables the patches use; call before booting. */
 void SwissVideoFlushVars(void);
 

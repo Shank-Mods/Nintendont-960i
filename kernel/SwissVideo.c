@@ -577,6 +577,8 @@ static bool findx_patterns(u32 *data, int dataType, u32 offsetFoundAt, u32 lengt
 #include "swissvideo/video_tables.inc"
 #include "swissvideo/Patch_Video.inc"
 
+static void SwissVideoClearSnapshot(void);
+
 /* ------------------------------------------------------------------------ */
 /* Nintendont interface                                                     */
 /* ------------------------------------------------------------------------ */
@@ -681,7 +683,64 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 
 	sync_after_write(Buffer, Length);
 	SwissVideoFlushVars();
+	SwissVideoClearSnapshot();
 }
+
+#ifndef SWISSVIDEO_HOST_TEST
+/*
+	960i diagnostics. PADRead (loader/source/ppc/PADReadGC) copies the VI
+	registers to VI_SNAPSHOT every frame while the game runs; this logs
+	them every few seconds so they can be compared with Swiss.
+*/
+#define VI_SNAPSHOT		0x13003200
+#define VI_LOG_INTERVAL	(1898437 * 3)	/* ~3 seconds */
+#define VI_LOG_MAX		10
+
+static u32 viLogTimer = 0, viLogCount = 0;
+
+void SwissVideoLogVI(void)
+{
+	u32 i, nonzero = 0;
+
+	if (viLogCount >= VI_LOG_MAX || !ConfigGetConfig(NIN_CFG_LOG) || !SwissVideoEnabled())
+		return;
+	if (viLogTimer == 0) {
+		viLogTimer = read32(HW_TIMER);
+		return;
+	}
+	if (TimerDiffTicks(viLogTimer) < VI_LOG_INTERVAL)
+		return;
+	viLogTimer = read32(HW_TIMER);
+
+	sync_before_read((void *)VI_SNAPSHOT, 0x80);
+	for (i = 0; i < 0x80; i += 4)
+		nonzero |= read32(VI_SNAPSHOT + i);
+	if (!nonzero)
+		return;	/* game not running yet */
+
+	viLogCount++;
+	dbgprintf("SwissVideo:VI regs #%u\r\n", viLogCount);
+	for (i = 0; i < 0x80; i += 0x10) {
+		dbgprintf("VI %02X: %04X %04X %04X %04X %04X %04X %04X %04X\r\n", i,
+			read16(VI_SNAPSHOT + i + 0x0), read16(VI_SNAPSHOT + i + 0x2),
+			read16(VI_SNAPSHOT + i + 0x4), read16(VI_SNAPSHOT + i + 0x6),
+			read16(VI_SNAPSHOT + i + 0x8), read16(VI_SNAPSHOT + i + 0xA),
+			read16(VI_SNAPSHOT + i + 0xC), read16(VI_SNAPSHOT + i + 0xE));
+	}
+}
+
+static void SwissVideoClearSnapshot(void)
+{
+	u32 i;
+	for (i = 0; i < 0x80; i += 4)
+		write32(VI_SNAPSHOT + i, 0);
+	sync_after_write((void *)VI_SNAPSHOT, 0x80);
+	viLogTimer = 0;
+	viLogCount = 0;
+}
+#else
+static void SwissVideoClearSnapshot(void) {}
+#endif
 
 void SwissVideoFlushVars(void)
 {

@@ -37,6 +37,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "GCAM.h"
 #include "TRI.h"
 #include "Patch.h"
+#include "SwissVideo.h"
 
 #include "diskio.h"
 #include "usbstorage.h"
@@ -334,6 +335,7 @@ int _main( int argc, char *argv[] )
 	while (1)
 	{
 		_ahbMemFlush(0);
+		SwissVideoLogVI();
 #ifdef PERFMON
 		loopCnt++;
 		if(TimerDiffTicks(loopPrintTimer) > 1898437)

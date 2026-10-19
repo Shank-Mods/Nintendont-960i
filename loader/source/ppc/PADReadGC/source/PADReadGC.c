@@ -103,6 +103,16 @@ u32 PADRead(u32 calledByGame)
 	else //this file is only used for hid in the loader
 		MaxPads = 0;
 
+	/* 960i diagnostics: snapshot the VI registers for the kernel log */
+	if(calledByGame && (((NIN_CFG*)0x93004000)->Config & NIN_CFG_960I))
+	{
+		vu16 *viSrc = (vu16*)0xCC002000;
+		vu16 *viDst = (vu16*)0xD3003200;
+		u32 viReg;
+		for(viReg = 0; viReg < 0x40; ++viReg)
+			viDst[viReg] = viSrc[viReg];
+	}
+
 	u32 WiiUGamepadSlot = ((NIN_CFG*)0x93004000)->WiiUGamepadSlot;
 	u32 HIDPad = (*HID_STATUS == 0) ? HID_PAD_NONE : HID_PAD_NOT_SET;
 	u32 chan;

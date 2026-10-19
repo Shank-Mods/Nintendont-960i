@@ -74,10 +74,11 @@ jobs:
               fi
               $DEVKITPPC/bin/powerpc-eabi-gcc --version | head -1
               $DEVKITARM/bin/arm-none-eabi-gcc --version | head -1
-              # One build per Swiss "AVE Compatibility" mode (960i testing)
+              # Swiss "AVE Compatibility" modes to build (GCVIDEO and CMPV_DOL give a
+              # black screen on the Wii, so only AVE-RVL for now)
               # Each goes in its own folder with its own Homebrew Channel name,
               # so all three can be installed side by side.
-              for v in AVE_RVL:AVE-RVL GCVIDEO:GCVideo CMPV_DOL:CMPV-DOL; do
+              for v in AVE_RVL:AVE-RVL; do
                 id=${v%%:*}; label=${v#*:}
                 make SWISSVIDEO_AVE=${id}_COMPAT
                 dir=out/$id/apps/Nintendont-960i-$label
@@ -92,12 +93,3 @@ jobs:
           name: nintendont-960i-AVE-RVL
           path: out/AVE_RVL/
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nintendont-960i-GCVideo
-          path: out/GCVIDEO/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nintendont-960i-CMPV-DOL
-          path: out/CMPV_DOL/
