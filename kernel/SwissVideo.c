@@ -674,16 +674,45 @@ static void swv_log_timing(const char *what, const u8 *t)
 		3 * equ + swv_get(t, 3) + 2 * acv + swv_get(t, 5));
 }
 
-#ifndef SWISSVIDEO_HOST_TEST
-static void SwissVideoTimingOverrides(void)
+/* Settings read from /nin960i_vi.txt (-1 = not set) */
+static s32 swv_ovr_vmode, swv_ovr_vjitter, swv_ovr_vfilter, swv_ovr_avecompat;
+static s32 swv_ovr_timing[countof(swv_timing_fields)];
+
+static void swv_apply_setting(const char *name, u32 n)
 {
-	u8 *t = (swissSettings.gameVMode == 11) ? video_timing_1152i : video_timing_960i;
+	u32 j;
+
+	if (strcmp(name, "gamevmode") == 0)        swv_ovr_vmode = n;
+	else if (strcmp(name, "forcevjitter") == 0) swv_ovr_vjitter = n;
+	else if (strcmp(name, "forcevfilter") == 0) swv_ovr_vfilter = n;
+	else if (strcmp(name, "avecompat") == 0)    swv_ovr_avecompat = n;
+	else {
+		for (j = 0; j < countof(swv_timing_fields); j++) {
+			if (strcmp(name, swv_timing_fields[j].name) == 0) {
+				swv_ovr_timing[j] = n;
+				break;
+			}
+		}
+		if (j == countof(swv_timing_fields)) {
+			swv_log("SwissVideo:unknown setting %s\r\n", name);
+			return;
+		}
+	}
+	swv_log("SwissVideo:setting %s = %u\r\n", name, n);
+}
+
+#ifndef SWISSVIDEO_HOST_TEST
+static void SwissVideoReadSettings(void)
+{
 	char buf[1024], name[16];
 	FIL f;
 	UINT read = 0;
-	u32 i, j, n;
+	u32 i, n;
 
-	swv_log_timing("default", t);
+	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = -1;
+	for (i = 0; i < countof(swv_ovr_timing); i++)
+		swv_ovr_timing[i] = -1;
+
 	if (f_open_char(&f, "/nin960i_vi.txt", FA_READ | FA_OPEN_EXISTING) != FR_OK)
 		return;
 	f_read(&f, buf, sizeof(buf) - 1, &read);
@@ -691,7 +720,7 @@ static void SwissVideoTimingOverrides(void)
 	buf[read] = 0;
 
 	for (i = 0; i < read; ) {
-		/* one line: name=value */
+		/* one line: name=value (decimal) */
 		while (i < read && (buf[i] == ' ' || buf[i] == '\t' || buf[i] == '\r' || buf[i] == '\n'))
 			i++;
 		if (i >= read)
@@ -716,27 +745,41 @@ static void SwissVideoTimingOverrides(void)
 		while (i < read && buf[i] >= '0' && buf[i] <= '9')
 			n = n * 10 + (buf[i++] - '0');
 		while (i < read && buf[i] != '\n') i++;
-
-		if (strcmp(name, "avecompat") == 0) {
-			swissSettings.aveCompat = n;
-			swv_log("SwissVideo:override aveCompat = %u\r\n", n);
-			continue;
-		}
-		for (j = 0; j < countof(swv_timing_fields); j++) {
-			if (strcmp(name, swv_timing_fields[j].name) == 0) {
-				swv_set(t, j, n);
-				swv_log("SwissVideo:override %s = %u\r\n", name, n);
-				break;
-			}
-		}
-		if (j == countof(swv_timing_fields))
-			swv_log("SwissVideo:unknown setting %s\r\n", name);
+		swv_apply_setting(name, n);
 	}
-	swv_log_timing("override", t);
 }
 #else
-static void SwissVideoTimingOverrides(void) {}
+static void SwissVideoReadSettings(void)
+{
+	u32 i;
+	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = -1;
+	for (i = 0; i < countof(swv_ovr_timing); i++)
+		swv_ovr_timing[i] = -1;
+}
 #endif
+
+static void SwissVideoTimingOverrides(void)
+{
+	u8 *t;
+	u32 j, any = 0;
+
+	if (swissSettings.gameVMode == 4)
+		t = video_timing_960i;
+	else if (swissSettings.gameVMode == 11)
+		t = video_timing_1152i;
+	else
+		return;
+
+	swv_log_timing("default", t);
+	for (j = 0; j < countof(swv_timing_fields); j++) {
+		if (swv_ovr_timing[j] >= 0) {
+			swv_set(t, j, swv_ovr_timing[j]);
+			any = 1;
+		}
+	}
+	if (any)
+		swv_log_timing("override", t);
+}
 
 /* Games Swiss forces to the 50Hz variant of the selected mode (960i -> 1152i) */
 static const char gameVModePalEntries[][4] = {
@@ -778,21 +821,23 @@ static void SwissVideoSetup(void)
 	memset(&swissSettings, 0, sizeof(swissSettings));
 	/*
 		Swiss' "AVE Compatibility" setting. Every mode except AVE-RVL also
-		sets the VI's non-interlaced (NIN) bit for 960i, so the encoder sees
-		a progressive signal. Selected at build time while testing which one
-		the Wii's encoder needs in Wii mode (make SWISSVIDEO_AVE=...).
+		sets the VI's non-interlaced (NIN) bit for 960i. AVE-RVL is the one
+		that gives a picture on the Wii (the others give a black screen).
 	*/
 	swissSettings.aveCompat = SWISSVIDEO_AVE_COMPAT;
 	swissSettings.sramVideo = (BI2region == BI2_REGION_PAL) ? SYS_VIDEO_PAL : SYS_VIDEO_NTSC;
 
-	swissSettings.gameVMode = 4;	/* 960i */
+	/* Swiss "Video Mode": 4 = 960i by default, see gameVModeStr in Swiss */
+	swissSettings.gameVMode = swv_ovr_vmode >= 0 ? swv_ovr_vmode : 4;
+
+	/* From here on this mirrors Swiss' config_load_current() */
 	swissSettings.sram60Hz = in_range(swissSettings.gameVMode, 1, 7);
 	swissSettings.sramProgressive = in_range(swissSettings.gameVMode, 4, 7) || in_range(swissSettings.gameVMode, 11, 14);
 
 	if (swissSettings.sram60Hz) {
 		for (i = 0; i < countof(gameVModePalEntries); i++) {
 			if (memcmp(game_id, gameVModePalEntries[i], 4) == 0) {
-				swissSettings.gameVMode += 7;	/* 1152i */
+				swissSettings.gameVMode += 7;	/* e.g. 960i -> 1152i */
 				break;
 			}
 		}
@@ -803,18 +848,65 @@ static void SwissVideoSetup(void)
 	else
 		swissSettings.sram60Hz = 0;
 
-	/* "Auto" defaults Swiss applies for 960i / 1152i */
-	swissSettings.forceVOffset &= ~1;
-	if (!swissSettings.forceVFilter)
-		swissSettings.forceVFilter = 1;
-	if (!swissSettings.forceVJitter)
-		swissSettings.forceVJitter = 1;	/* force field rendering */
+	if (swv_ovr_vjitter >= 0) swissSettings.forceVJitter = swv_ovr_vjitter;
+	if (swv_ovr_vfilter >= 0) swissSettings.forceVFilter = swv_ovr_vfilter;
+	if (swv_ovr_avecompat >= 0) swissSettings.aveCompat = swv_ovr_avecompat;
 
-	/* Swiss initialises the VI with this mode before booting the game */
-	swiss_newmode.viTVMode = in_range(swissSettings.gameVMode, 4, 7) ? VI_TVMODE_NTSC_PROG : VI_TVMODE_PAL_PROG;
+	/* "Auto" defaults Swiss applies per mode */
+	switch (swissSettings.gameVMode) {
+		case 2: case 9: case 5: case 12:
+			if (!swissSettings.forceVFilter)
+				swissSettings.forceVFilter = 1;
+			break;
+		case 3: case 10:
+			swissSettings.forceVOffset &= ~1;
+			if (!swissSettings.forceVFilter)
+				swissSettings.forceVFilter = 1;
+			if (!swissSettings.forceVJitter)
+				swissSettings.forceVJitter = 2;
+			break;
+		case 4: case 11:
+			swissSettings.forceVOffset &= ~1;
+			if (!swissSettings.forceVFilter)
+				swissSettings.forceVFilter = 1;
+			if (!swissSettings.forceVJitter)
+				swissSettings.forceVJitter = 1;	/* force field rendering */
+			break;
+		case 6: case 13:
+			if (!swissSettings.forceHScale)
+				swissSettings.forceHScale = 1;
+			swissSettings.forceVOffset &= ~1;
+			if (!swissSettings.forceVFilter)
+				swissSettings.forceVFilter = 1;
+			if (!swissSettings.forceVJitter)
+				swissSettings.forceVJitter = 1;
+			break;
+		case 7: case 14:
+			if (!swissSettings.forceHScale)
+				swissSettings.forceHScale = 1;
+			swissSettings.forceVOffset &= ~1;
+			if (!swissSettings.forceVFilter)
+				swissSettings.forceVFilter = 1;
+			break;
+	}
 
-	dbgprintf("SwissVideo:gameVMode %i (%s), aveCompat %i, sramVideo %i, 60Hz %i, progressive %i\r\n",
-		swissSettings.gameVMode, swissSettings.gameVMode == 4 ? "960i" : "1152i", swissSettings.aveCompat,
+	/* Swiss initialises the VI with this mode before booting the game
+	   (ogc_video__reset): progressive for 4-7 / 11-14, else interlaced */
+	if (in_range(swissSettings.gameVMode, 4, 7))
+		swiss_newmode.viTVMode = VI_TVMODE_NTSC_PROG;
+	else if (in_range(swissSettings.gameVMode, 11, 14))
+		swiss_newmode.viTVMode = VI_TVMODE_PAL_PROG;
+	else if (swissSettings.gameVMode == 3)
+		swiss_newmode.viTVMode = 1;	/* NTSC DS (240p) */
+	else if (swissSettings.gameVMode == 10)
+		swiss_newmode.viTVMode = 5;	/* PAL DS (288p) */
+	else if (in_range(swissSettings.gameVMode, 8, 9))
+		swiss_newmode.viTVMode = 4;	/* PAL interlaced */
+	else
+		swiss_newmode.viTVMode = 0;	/* NTSC interlaced */
+
+	swv_log("SwissVideo:gameVMode %i, forceVJitter %i, forceVFilter %i, aveCompat %i, sramVideo %i, 60Hz %i, progressive %i\r\n",
+		swissSettings.gameVMode, swissSettings.forceVJitter, swissSettings.forceVFilter, swissSettings.aveCompat,
 		swissSettings.sramVideo, swissSettings.sram60Hz, swissSettings.sramProgressive);
 }
 
@@ -828,6 +920,7 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	swv_echo = 1;
 	swv_loglen = 0;
 #endif
+	SwissVideoReadSettings();
 	SwissVideoSetup();
 	SwissVideoTimingOverrides();
 

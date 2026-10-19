@@ -1,37 +1,67 @@
-# Nintendont 960i - video timing experiments
+# Nintendont 960i - video experiments
 #
 # Copy this file to the ROOT of the drive Nintendont boots from.
-# Each "name=value" line (decimal) overrides one field of the 960i timing
-# table before the game is patched. Lines starting with # are ignored.
-# Delete or rename this file to use Swiss's 960i timing unchanged.
-# nin960i.log shows the timing that was used and the resulting frame length.
-#
-# Swiss's 960i timing (the default):
-#   equ=12 acv=480 prbodd=48 prbeven=49 psbodd=5 psbeven=4
-#   nhlines=1049 hlw=429
-# Frame length in half-lines = 3*equ + prb + 2*acv + psb
-#   960i: 36 + 48 + 960 + 5 = 1049   (524.5 lines, interlaces)
-#   480p: 1050                        (525 lines)
-# Keep nhlines equal to the frame length.
+# Each "name=value" line (decimal) changes one setting. Lines starting
+# with # are ignored. Delete or rename this file for normal 960i.
+# nin960i.log lists every setting that was applied and the frame length.
 #
 # Enable ONE experiment at a time by removing the # from its lines.
 #
-# --- Experiment A: exact 480p frame length, 1050 half-lines
-# Expected to lock if the half line is the problem (but won't interlace).
+# ---------------------------------------------------------------------
+# Swiss settings
+#   gamevmode     Swiss "Video Mode": 1=480i 2=480sf 3=240p 4=960i 5=480p
+#   forcevjitter  Swiss "Force Field Rendering": 1=On 2=Off 3=TAA
+#   forcevfilter  Swiss "Force Vertical Filter": 1, 2 or 3
+#   avecompat     Swiss "AVE Compatibility": 2=CMPV-DOL 4=GCVideo 5=AVE-RVL
+#
+# 960i timing table fields (only used in 960i mode)
+#   equ acv prbodd prbeven psbodd psbeven bs1-bs4 be1-be4 nhlines hlw
+#   hsy hcs hce hbe640 hbs640
+# Swiss's 960i: equ=12 acv=480 prbodd=48 prbeven=49 psbodd=5 psbeven=4
+#   bs 24/25/24/25 be 1038/1037/1038/1037 nhlines=1049 hlw=429
+# Frame length in half-lines = 3*equ + prb + 2*acv + psb
+# ---------------------------------------------------------------------
+#
+# Results so far (Kirby Air Ride, component, test monitor):
+#   default 960i ........ rolls up slowly, locks briefly
+#   A (1050) ............ no difference
+#   B (1052) ............ locks more often, still rolls up at the same rate
+#   C (1051) ............ no difference
+#
+# --- Experiment D: Swiss's exact 480p timing table, in 960i mode
+# If this still rolls, the timing table is not the cause.
+#prbeven=48
+#psbodd=6
+#psbeven=6
+#bs2=24
+#bs4=24
+#be2=1038
+#be4=1038
+#nhlines=1050
+#
+# --- Experiment E: Swiss's own forced 480p mode (no 960i at all)
+# Locks -> the Swiss patches work in Wii mode, the problem is 960i specific.
+# Rolls -> something in the Nintendont port / Wii mode breaks the sync.
+#gamevmode=5
+#
+# --- Experiment F: 960i with field rendering OFF
+# Shows whether the field rendering patches cause the roll.
+#forcevjitter=2
+#
+# --- Experiment G: Swiss's forced 480i mode (15 kHz)
+# Only if your monitor accepts 15 kHz. Another check of the Swiss patches.
+#gamevmode=1
+#
+# --- Old experiments ---------------------------------------------------
+# A: exact 480p frame length, 1050 half-lines
 #psbodd=6
 #psbeven=5
 #nhlines=1050
-#
-# --- Experiment B: 1052 half-lines (526 lines)
-# Locks   -> the encoder follows the Wii's frame length, only the half line
-#            is a problem.
-# Rolls faster than now -> the encoder counts its own 525 lines.
+# B: 1052 half-lines
 #psbodd=8
 #psbeven=7
 #nhlines=1052
-#
-# --- Experiment C: 1051 half-lines (525.5 lines, interlaces the other way)
-# Compare roll direction and speed with the default (1049).
+# C: 1051 half-lines
 #psbodd=7
 #psbeven=6
 #nhlines=1051
