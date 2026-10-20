@@ -471,9 +471,12 @@ void UpdateNinCFG()
 		{
 			ncfg->WiiUGamepadSlot = 0;
 		}
-		// 960i mode, disabled by default
-		ncfg->Config &= ~NIN_CFG_960I;
-		ncfg->Version = 11;
+	}
+	if (ncfg->Version == 11)
+	{	// Early 960i test builds used version 11 for the same layout. The 960i
+		// option is an otherwise unused Config bit, so stay compatible with
+		// official Nintendont (it ignores the bit) and go back to 10.
+		ncfg->Version = 10;
 	}
 }
 

@@ -1105,10 +1105,10 @@ static const char *const *GetSettingsDescription(const MenuCtx *ctx)
 					"some PAL games), doubling",
 					"the vertical resolution.",
 					"",
-					"Requires component cables,",
-					"progressive scan enabled in",
-					"the Wii settings and a TV or",
-					"scaler that accepts 960i.",
+					"Needs component cables and",
+					"progressive scan enabled.",
+					"Not every display can lock",
+					"onto the Wii's 960i sync.",
 					NULL
 				};
 				return desc_960i;

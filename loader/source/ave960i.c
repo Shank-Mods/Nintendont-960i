@@ -192,6 +192,11 @@ int AVE960iLoadFile(void)
 	u32 i, l = 0;
 
 	ave_count = 0;
+#ifndef NIN960I_EXPERIMENTS
+	/* Release/test builds don't touch the A/V encoder */
+	(void)path; (void)buf; (void)line; (void)f; (void)read; (void)i; (void)l;
+	return 0;
+#endif
 	snprintf(path, sizeof(path), "%s:/nin960i_ave.txt", GetRootDevice());
 	if (f_open_char(&f, path, FA_READ|FA_OPEN_EXISTING) != FR_OK)
 		return 0;

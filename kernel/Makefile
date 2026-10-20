@@ -68,6 +68,11 @@ $(TARGET): kernel.ld $(OBJECTS)
 SwissVideo.o: CFLAGS += -std=gnu99 -Os
 # Swiss "AVE Compatibility" mode for 960i: AVE_RVL_COMPAT (default),
 # CMPV_DOL_COMPAT or GCVIDEO_COMPAT, e.g. make SWISSVIDEO_AVE=GCVIDEO_COMPAT
+# 960i experiments: read /nin960i_vi.txt (make NIN960I_EXPERIMENTS=1)
+ifneq ($(NIN960I_EXPERIMENTS),)
+SwissVideo.o: CFLAGS += -DNIN960I_EXPERIMENTS
+SwissVideo.o: FORCE
+endif
 ifneq ($(SWISSVIDEO_AVE),)
 SwissVideo.o: CFLAGS += -DSWISSVIDEO_AVE_COMPAT=$(SWISSVIDEO_AVE)
 SwissVideo.o: FORCE

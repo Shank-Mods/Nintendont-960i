@@ -5,7 +5,7 @@
 #include "NintendontVersion.h"
 #include "Metadata.h"
 
-#define NIN_CFG_VERSION		0x0000000B
+#define NIN_CFG_VERSION		0x0000000A
 
 #define NIN_CFG_MAXPAD 4
 

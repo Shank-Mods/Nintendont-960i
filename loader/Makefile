@@ -30,6 +30,10 @@ INCLUDES	:= include ../fatfs
 ASFLAGS := $(MACHDEP) -mregnames -D_LANGUAGE_ASSEMBLY
 CFLAGS	:= -O3 -g -std=gnu89 -Wno-format-truncation \
 	   -Wall $(MACHDEP) $(INCLUDE) -DDEBUG -DDEBUG_MODULE_PATCH -DARCH_IS_BIG_ENDIAN
+# 960i experiments: write AVE registers from /nin960i_ave.txt
+ifneq ($(NIN960I_EXPERIMENTS),)
+CFLAGS	+= -DNIN960I_EXPERIMENTS
+endif
 CXXFLAGS := $(CFLAGS)
 
 # NOTE: Do NOT change to := - needed for proper expansion of $(CURDIR) later.

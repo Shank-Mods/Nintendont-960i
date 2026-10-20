@@ -717,6 +717,11 @@ static void SwissVideoReadSettings(void)
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = -1;
 
+#ifndef NIN960I_EXPERIMENTS
+	/* Release/test builds: fixed Swiss 960i settings, no settings file */
+	(void)buf; (void)name; (void)f; (void)read; (void)n;
+	return;
+#endif
 	if (f_open_char(&f, "/nin960i_vi.txt", FA_READ | FA_OPEN_EXISTING) != FR_OK) {
 		swv_log("SwissVideo:no /nin960i_vi.txt, using defaults\r\n");
 		return;

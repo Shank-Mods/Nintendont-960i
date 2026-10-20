@@ -12,12 +12,30 @@ Rendering" options of [Swiss](https://github.com/emukidid/swiss-gc).
 
 * An original Wii (not Wii U; its video path can't output 960i).
 * Component cables with progressive scan enabled in the Wii settings.
-  960i uses 31kHz timings, so like Swiss this needs an EDTV capable output.
-* A display, scaler or HDMI adapter that accepts 960i.
+* A display or scaler that accepts the Wii's 960i sync (see below).
 
-If any of these are missing the kernel silently falls back to the normal
-video handling. Nintendont's own video options (Force Progressive, forced
-video modes, Video Width, Screen Position) are ignored while 960i is active.
+If the Wii side requirements are missing the kernel silently falls back to the
+normal video handling. Nintendont's own video options (Force Progressive,
+forced video modes, Video Width, Screen Position) are ignored while 960i is
+active. The setting is bit 20 of `NIN_CFG.Config`; the config version stays
+at 10 so settings stay compatible with official Nintendont.
+
+## Display compatibility (findings from hardware testing)
+
+Tested on a Wii with component output, NTSC Kirby Air Ride:
+
+* The VI ends up programmed exactly like Swiss's AVE-RVL mode: progressive
+  flag (`DCR 0005`), 54 MHz clock, 1049 half-line frames
+  (equ 12, prb 48/49, psb 5/4).
+* The AVE-RVL only accepts 960i flagged as 480p and regenerates the sync
+  itself. Per Extrems, the result is real 960i (the half line offsets the
+  fields) but without proper equalization pulses. The tested monitor and two
+  sync detectors could not hold vertical lock (picture rolls, only brief
+  locks). Displays with more tolerant sync handling may work.
+* Swiss's forced 480p and 480i modes work fine on the same setup, as do
+  progressive frames of other whole-line lengths (526 lines). Flagging 960i
+  as interlaced at 54 MHz gives no output at all. Swiss's pre-July-2026 960i
+  timing (equ 6, prb 70/71, psb 1/0) behaves the same.
 
 ## How it works
 
@@ -57,6 +75,25 @@ from bin2h instead.
 
 Ported from swiss-gc commit `39a0867ec0350f152f6395d932cf4457d49eb825`.
 
+## Experiments build
+
+`make NIN960I_EXPERIMENTS=1` builds a version that reads two optional files
+from the root of the boot device (templates in `ave/`):
+
+* `nin960i_vi.txt`: Swiss settings (`gamevmode`, `forcevjitter`,
+  `forcevfilter`, `avecompat`, `swiss=0` for a baseline) and 960i timing
+  fields (`equ`, `prbodd`, `psbodd`, `nhlines`, ...).
+* `nin960i_ave.txt`: raw AVE-RVL register writes (`RR=VV`). Register 00 bit 0
+  shows the encoder's color bar test pattern; `01=23` is RVLoader's VGA mode.
+
+Normal builds ignore both files.
+
+## Diagnostics
+
+Every 960i boot writes `/nin960i.log` to the boot device: settings, the
+timing used, every Swiss signature found (`Found:[...]`) and ten snapshots
+of the VI registers (captured by PADRead, logged ~3 s apart).
+
 ## Testing without a Wii
 
 `test/` builds the same patcher as a PowerPC Linux program. It loads a
@@ -69,9 +106,6 @@ make -C kernel/swissvideo/test CC=powerpc-linux-gnu-gcc
 qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALE      # NTSC
 qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALP P    # PAL
 ```
-
-On hardware, enable **Log** in the settings. The kernel log then shows the
-same `Found:[...]` lines for every patched SDK function.
 
 ## Not ported (yet)
 

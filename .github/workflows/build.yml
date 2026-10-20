@@ -74,23 +74,31 @@ jobs:
               fi
               $DEVKITPPC/bin/powerpc-eabi-gcc --version | head -1
               $DEVKITARM/bin/arm-none-eabi-gcc --version | head -1
-              # Swiss "AVE Compatibility" modes to build (GCVIDEO and CMPV_DOL give a
-              # black screen on the Wii, so only AVE-RVL for now)
-              # Each goes in its own folder with its own Homebrew Channel name,
-              # so all three can be installed side by side.
-              for v in AVE_RVL:AVE-RVL; do
-                id=${v%%:*}; label=${v#*:}
-                make SWISSVIDEO_AVE=${id}_COMPAT
-                dir=out/$id/apps/Nintendont-960i-$label
-                mkdir -p out/$id/apps
-                cp -r nintendont "$dir"
-                sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i ($label)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>960i test build, Swiss AVE mode: $label</short_description>|" "$dir/meta.xml"
-                grep "<name>" "$dir/meta.xml"
-                cp kernel/swissvideo/ave/nin960i_ave.txt kernel/swissvideo/ave/nin960i_vi.txt out/$id/
-              done'
+              # Experiments build: reads /nin960i_vi.txt and /nin960i_ave.txt
+              make NIN960I_EXPERIMENTS=1
+              dir=out/experiments/apps/Nintendont-960i-experiments
+              mkdir -p out/experiments/apps
+              cp -r nintendont "$dir"
+              sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i (experiments)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>960i experiments build (reads nin960i_*.txt)</short_description>|" "$dir/meta.xml"
+              cp kernel/swissvideo/ave/nin960i_ave.txt kernel/swissvideo/ave/nin960i_vi.txt out/experiments/
+
+              # Test build for other people: fixed Swiss 960i, no settings files
+              make clean > /dev/null
+              make
+              dir=out/test/apps/Nintendont-960i
+              mkdir -p out/test/apps
+              cp -r nintendont "$dir"
+              sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i (test build)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>GameCube loader with Swiss-style 960i field rendering</short_description>|" "$dir/meta.xml"
+              cp kernel/swissvideo/release/README_960i.txt out/test/
+              grep -h "<name>" out/*/apps/*/meta.xml'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nintendont-960i-AVE-RVL
-          path: out/AVE_RVL/
+          name: nintendont-960i-test-build
+          path: out/test/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nintendont-960i-experiments
+          path: out/experiments/
 
