@@ -676,6 +676,7 @@ static void swv_log_timing(const char *what, const u8 *t)
 
 /* Settings read from /nin960i_vi.txt (-1 = not set) */
 static s32 swv_ovr_vmode, swv_ovr_vjitter, swv_ovr_vfilter, swv_ovr_avecompat;
+static s32 swv_ovr_swiss;	/* 0 = don't apply the Swiss patches (baseline) */
 static s32 swv_ovr_timing[countof(swv_timing_fields)];
 
 static void swv_apply_setting(const char *name, u32 n)
@@ -683,6 +684,7 @@ static void swv_apply_setting(const char *name, u32 n)
 	u32 j;
 
 	if (strcmp(name, "gamevmode") == 0)        swv_ovr_vmode = n;
+	else if (strcmp(name, "swiss") == 0)        swv_ovr_swiss = n;
 	else if (strcmp(name, "forcevjitter") == 0) swv_ovr_vjitter = n;
 	else if (strcmp(name, "forcevfilter") == 0) swv_ovr_vfilter = n;
 	else if (strcmp(name, "avecompat") == 0)    swv_ovr_avecompat = n;
@@ -709,7 +711,7 @@ static void SwissVideoReadSettings(void)
 	UINT read = 0;
 	u32 i, n;
 
-	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = -1;
+	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = -1;
 
@@ -752,7 +754,7 @@ static void SwissVideoReadSettings(void)
 static void SwissVideoReadSettings(void)
 {
 	u32 i;
-	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = -1;
+	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = -1;
 }
@@ -921,6 +923,15 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	swv_loglen = 0;
 #endif
 	SwissVideoReadSettings();
+	if (swv_ovr_swiss == 0) {
+		/* Baseline: game's own video code, only log the VI registers */
+		swv_log("SwissVideo:swiss=0, Swiss video patches NOT applied (baseline)\r\n");
+		SwissVideoClearSnapshot();
+#ifndef SWISSVIDEO_HOST_TEST
+		swv_echo = 0;
+#endif
+		return;
+	}
 	SwissVideoSetup();
 	SwissVideoTimingOverrides();
 

@@ -6,9 +6,11 @@
 # nin960i.log lists every setting that was applied and the frame length.
 #
 # Enable ONE experiment at a time by removing the # from its lines.
+# The "960i Field Render" setting must be ON or this file is ignored.
 #
 # ---------------------------------------------------------------------
 # Swiss settings
+#   swiss         0 = don't apply the Swiss video patches (baseline)
 #   gamevmode     Swiss "Video Mode": 1=480i 2=480sf 3=240p 4=960i 5=480p
 #   forcevjitter  Swiss "Force Field Rendering": 1=On 2=Off 3=TAA
 #   forcevfilter  Swiss "Force Vertical Filter": 1, 2 or 3
@@ -22,11 +24,18 @@
 # Frame length in half-lines = 3*equ + prb + 2*acv + psb
 # ---------------------------------------------------------------------
 #
+# --- Experiment H: BASELINE, no Swiss patches at all (960i must be ON)
+# The game's own video code runs, the video registers are still logged.
+# Answer "yes" to the progressive scan question so it runs in 480p.
+#swiss=0
+#
 # Results so far (Kirby Air Ride, component, test monitor):
 #   default 960i ........ rolls up slowly, locks briefly
 #   A (1050) ............ no difference
 #   B (1052) ............ locks more often, still rolls up at the same rate
 #   C (1051) ............ no difference
+#   E (Swiss 480p) ...... rolls like 960i -> not 960i specific
+#   Nintendont's own 480p locks fine
 #
 # --- Experiment D: Swiss's exact 480p timing table, in 960i mode
 # If this still rolls, the timing table is not the cause.
