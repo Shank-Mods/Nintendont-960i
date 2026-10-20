@@ -706,7 +706,9 @@ static void swv_apply_setting(const char *name, u32 n)
 #ifndef SWISSVIDEO_HOST_TEST
 static void SwissVideoReadSettings(void)
 {
-	char buf[1024], name[16];
+	/* static: the whole file must fit, templates are a few KB */
+	static char buf[8192];
+	char name[16];
 	FIL f;
 	UINT read = 0;
 	u32 i, n;
@@ -715,11 +717,17 @@ static void SwissVideoReadSettings(void)
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = -1;
 
-	if (f_open_char(&f, "/nin960i_vi.txt", FA_READ | FA_OPEN_EXISTING) != FR_OK)
+	if (f_open_char(&f, "/nin960i_vi.txt", FA_READ | FA_OPEN_EXISTING) != FR_OK) {
+		swv_log("SwissVideo:no /nin960i_vi.txt, using defaults\r\n");
 		return;
+	}
 	f_read(&f, buf, sizeof(buf) - 1, &read);
+	if (f.obj.objsize > sizeof(buf) - 1)
+		swv_log("SwissVideo:WARNING /nin960i_vi.txt is %u bytes, only %u read\r\n",
+			(u32)f.obj.objsize, (u32)read);
 	f_close(&f);
 	buf[read] = 0;
+	swv_log("SwissVideo:read /nin960i_vi.txt (%u bytes)\r\n", (u32)read);
 
 	for (i = 0; i < read; ) {
 		/* one line: name=value (decimal) */

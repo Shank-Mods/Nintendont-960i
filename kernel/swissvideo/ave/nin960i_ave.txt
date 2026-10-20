@@ -13,7 +13,8 @@
 #   6A=01 65=03 01=20 (component) 00=00 02=07 0A=00 03=01 04=01 6E=00
 #
 # Results so far: 00=01 shows the encoder's color bar test pattern,
-# 02, 0A, 6A and 65 changes made no visible difference.
+# 02, 0A and 6A changes made no visible difference. Test 7 (65) was never
+# applied: older builds only read the first 1 KB of this file.
 # Do NOT try 01=23: that is RVLoader's VGA mode (RGB output, component off).
 #
 # --- Test 1: register 00 bit 0 -> encoder test pattern (color bars)

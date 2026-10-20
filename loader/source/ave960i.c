@@ -185,7 +185,7 @@ static int ave_count = 0;
 int AVE960iLoadFile(void)
 {
 	char path[32];
-	char buf[1024];
+	static char buf[8192];	/* the whole file must fit */
 	char line[64];
 	FIL f;
 	UINT read = 0;
