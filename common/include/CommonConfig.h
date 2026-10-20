@@ -52,8 +52,11 @@ enum ninconfigbitpos
 	NIN_CFG_BIT_CC_RUMBLE	= (17),
 	NIN_CFG_BIT_SKIP_IPL	= (18),
 	NIN_CFG_BIT_BBA_EMU		= (19),
-	NIN_CFG_BIT_960I		= (20),	// 960i video mode (forced field rendering)
-	NIN_CFG_BIT_960I_COMPAT	= (21),	// 3 bits: 960i compatibility mode, see nin960icompat
+	// Bits 20-23 were used by early 960i test builds. Swiss video settings
+	// now live in nincfg_swiss.bin (SwissVideoConfig.h); the loader moves
+	// old values over once and clears these bits.
+	NIN_CFG_BIT_960I_LEGACY		= (20),
+	NIN_CFG_BIT_960I_COMPAT_LEGACY	= (21),	// 3 bits
 
 	// Internal kernel settings.
 	NIN_CFG_BIT_MC_SLOTB	= (31),	// Slot B image is loaded
@@ -83,31 +86,11 @@ enum ninconfig
 	NIN_CFG_CC_RUMBLE	= (1<<NIN_CFG_BIT_CC_RUMBLE),
 	NIN_CFG_SKIP_IPL	= (1<<NIN_CFG_BIT_SKIP_IPL),
 	NIN_CFG_BBA_EMU		= (1<<NIN_CFG_BIT_BBA_EMU),
-	NIN_CFG_960I		= (1<<NIN_CFG_BIT_960I),
-	NIN_CFG_960I_COMPAT	= (7<<NIN_CFG_BIT_960I_COMPAT),
+	NIN_CFG_960I_LEGACY		= (1<<NIN_CFG_BIT_960I_LEGACY),
+	NIN_CFG_960I_COMPAT_LEGACY	= (7<<NIN_CFG_BIT_960I_COMPAT_LEGACY),
 
 	NIN_CFG_MC_SLOTB	= (1<<NIN_CFG_BIT_MC_SLOTB),
 };
-
-// 960i compatibility modes (Swiss "AVE Compatibility"), stored in
-// NIN_CFG_960I_COMPAT while NIN_CFG_960I is set. 0 = AVE-RVL, so older
-// test builds' "On" keeps meaning AVE-RVL.
-enum nin960icompat
-{
-	NIN_960I_AVE_RVL	= 0,
-	NIN_960I_GCVIDEO	= 1,
-	NIN_960I_GCDIGITAL	= 2,
-	NIN_960I_CMPV_DOL	= 3,
-	NIN_960I_AVE_N_DOL	= 4,
-	NIN_960I_AVE_P_DOL	= 5,
-	NIN_960I_COMPAT_COUNT
-};
-
-static inline unsigned int Nin960iCompat(unsigned int Config)
-{
-	unsigned int c = (Config & NIN_CFG_960I_COMPAT) >> NIN_CFG_BIT_960I_COMPAT;
-	return (c < NIN_960I_COMPAT_COUNT) ? c : NIN_960I_AVE_RVL;
-}
 
 enum ninextrasettings
 {
@@ -203,5 +186,7 @@ enum BI2region_codes
 	BI2_REGION_PAL		= 2,
 	BI2_REGION_SOUTH_KOREA	= 4,
 };
+
+#include "SwissVideoConfig.h"
 
 #endif

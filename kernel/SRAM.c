@@ -84,9 +84,6 @@ void SRAM_Init(void)
 		sram.BootMode |= 0x40;
 
 		// TODO: Set the progressive scan flag on PAL?
-		// 960i mode: Swiss enables progressive scan for PAL games too.
-		if (SwissVideoEnabled())
-			sram.Flags |= 0x80;
 	}
 	else
 	{
@@ -110,8 +107,25 @@ void SRAM_Init(void)
 		}
 	}
 
-	// Are we forcing a video mode?
-	if( ConfigGetVideoMode() & NIN_VID_FORCE )
+	// A video mode forced in the Swiss video settings sets these
+	// like Swiss does (see loader/source/swissvideo.c).
+	bool swissProgressive, swissPal60;
+	if (SwissVideoSramFlags(&swissProgressive, &swissPal60))
+	{
+		sram.Flags &= ~0x80;
+		if (swissProgressive)
+			sram.Flags |= 0x80;
+		if (tmp_BI2region == BI2_REGION_PAL)
+		{
+			sram.BootMode &= ~0x40;
+			if (swissPal60)
+				sram.BootMode |= 0x40;
+		}
+	}
+
+	// Are we forcing a video mode? (Not with the Swiss video patches,
+	// they replace Nintendont's video options.)
+	if( (ConfigGetVideoMode() & NIN_VID_FORCE) && !SwissVideoEnabled() )
 	{
 		switch( ConfigGetVideoMode() & NIN_VID_FORCE_MASK )
 		{

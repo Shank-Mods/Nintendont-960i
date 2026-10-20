@@ -1,16 +1,19 @@
 /*
-Nintendont (Kernel) - Swiss video patch engine (field rendering / 960i)
+Nintendont (Kernel) - Swiss video patch engine
 
 The signatures, patch logic and PowerPC stubs used here come from Swiss
 (https://github.com/emukidid/swiss-gc, cube/swiss/source/patcher.c), which
-can force GameCube games to use field rendering and output 960i/1152i.
-Patch_Video() is imported mechanically by swissvideo/port_patch_video.py,
-this file only provides the environment it expects:
+can force GameCube games into other video modes (240p, 480p, 960i, ...),
+force field rendering, filters, anisotropic filtering and widescreen.
+Patch_Video(), Patch_Widescreen() and Patch_TexFilt() are imported
+mechanically by swissvideo/port_patch_video.py, this file only provides
+the environment they expect:
 
   - Swiss' pattern matching helpers (copied verbatim),
   - address translation for a DOL that is already loaded in place,
   - an installer for the hook stubs that uses Nintendont's patch area,
-  - the Swiss settings that select "960i + force field rendering",
+  - Swiss' settings, worked out by the loader for the game being booted
+    (SWISS_BOOT, see common/include/SwissVideoConfig.h),
   - accessors for the few low memory variables shared with the stubs.
 
 This program is free software; you can redistribute it and/or
@@ -43,6 +46,8 @@ extern u32 PatchCopy(const u8 *PatchPtr, const u32 PatchSize);
 
 #ifndef SWISSVIDEO_HOST_TEST
 static void swv_log(const char *fmt, ...);
+#else
+#define swv_log printf
 #endif
 
 /*
@@ -122,6 +127,8 @@ static struct {
 	int forceVJitter;
 	int fixPixelCenter;
 	int disableDithering;
+	int forceAnisotropy;
+	int forceWidescreen;
 	int aveCompat;
 	int rt4kOptim;
 	int forceDTVStatus;
@@ -167,6 +174,11 @@ static inline void var_write16(u32 off, u16 val)
 {
 	__asm__ volatile ("strh\t%0, [%1]" : : "l" (val), "l" (off));
 }
+
+static inline void var_write32(u32 off, u32 val)
+{
+	__asm__ volatile ("str\t%0, [%1]" : : "l" (val), "l" (off));
+}
 #else
 static inline void var_write8(u32 off, u8 val)
 {
@@ -176,6 +188,11 @@ static inline void var_write8(u32 off, u8 val)
 static inline void var_write16(u32 off, u16 val)
 {
 	*(volatile u16 *)(MEM1_BASE + off) = val;
+}
+
+static inline void var_write32(u32 off, u32 val)
+{
+	*(volatile u32 *)(MEM1_BASE + off) = val;
 }
 #endif
 
@@ -220,6 +237,14 @@ static void *Calc_Address(void *data, int dataType, u32 properAddress)
 
 enum patchIds {
 	GX_COPYDISPHOOK,
+	GX_INITTEXOBJLODHOOK,
+	GX_SETPROJECTIONHOOK,
+	GX_SETSCISSORHOOK,
+	MTX_FRUSTUMHOOK,
+	MTX_LIGHTFRUSTUMHOOK,
+	MTX_LIGHTPERSPECTIVEHOOK,
+	MTX_ORTHOHOOK,
+	MTX_PERSPECTIVEHOOK,
 	VI_CONFIGURE240P,
 	VI_CONFIGURE288P,
 	VI_CONFIGURE480I,
@@ -251,6 +276,14 @@ static const struct {
 	u32 size;
 } patch_table[PATCHES_MAX] = {
 	[GX_COPYDISPHOOK]           = { GXCopyDispHook,          GXCopyDispHook_size },
+	[GX_INITTEXOBJLODHOOK]      = { GXInitTexObjLODHook,     GXInitTexObjLODHook_size },
+	[GX_SETPROJECTIONHOOK]      = { GXSetProjectionHook,     GXSetProjectionHook_size },
+	[GX_SETSCISSORHOOK]         = { GXSetScissorHook,        GXSetScissorHook_size },
+	[MTX_FRUSTUMHOOK]           = { MTXFrustumHook,          MTXFrustumHook_size },
+	[MTX_LIGHTFRUSTUMHOOK]      = { MTXLightFrustumHook,     MTXLightFrustumHook_size },
+	[MTX_LIGHTPERSPECTIVEHOOK]  = { MTXLightPerspectiveHook, MTXLightPerspectiveHook_size },
+	[MTX_ORTHOHOOK]             = { MTXOrthoHook,            MTXOrthoHook_size },
+	[MTX_PERSPECTIVEHOOK]       = { MTXPerspectiveHook,      MTXPerspectiveHook_size },
 	[VI_CONFIGURE240P]          = { VIConfigure240p,         VIConfigure240p_size },
 	[VI_CONFIGURE288P]          = { VIConfigure288p,         VIConfigure288p_size },
 	[VI_CONFIGURE480I]          = { VIConfigure480i,         VIConfigure480i_size },
@@ -299,6 +332,19 @@ static void *getPatchAddr(int patchId)
 		swv_log("SwissVideo:Installed patch %i to %08X\r\n", patchId, patch_locations[patchId]);
 	}
 	return patch_locations[patchId];
+}
+
+/* Swiss' installPatch(): a new copy every time (Patch_Widescreen, Patch_TexFilt) */
+static void *installPatch(int patchId)
+{
+	u32 phys;
+	void *addr;
+	if (patchId < 0 || patchId >= PATCHES_MAX)
+		return NULL;
+	phys = PatchCopy(patch_table[patchId].patch, patch_table[patchId].size);
+	addr = (void *)(0x80000000 | (phys - MEM1_BASE));
+	swv_log("SwissVideo:Installed patch %i to %08X\r\n", patchId, addr);
+	return addr;
 }
 
 static void swv_reset_sigs(FuncPattern *sigs, u32 count)
@@ -615,6 +661,7 @@ static void swv_log(const char *fmt, ...)
 
 #include "swissvideo/video_tables.inc"
 #include "swissvideo/Patch_Video.inc"
+#include "swissvideo/Patch_Extras.inc"
 
 static void SwissVideoClearSnapshot(void);
 
@@ -793,148 +840,116 @@ static void SwissVideoTimingOverrides(void)
 		swv_log_timing("override", t);
 }
 
-/* Games Swiss forces to the 50Hz variant of the selected mode (960i -> 1152i) */
-static const char gameVModePalEntries[][4] = {
-	"DLSP", "G3FD", "G3FF", "G3FP", "G3FS", "GLRD", "GLRF", "GLRP",
-	"GM8P", "GSWD", "GSWF", "GSWI", "GSWP", "GSWS"
-};
+/*
+	Settings for the game being booted, worked out by the loader from the
+	"Swiss Video" settings page (loader/source/swissvideo.c, a port of
+	Swiss' config_load_current()). NULL if the patches are off.
+*/
+#ifndef SWISSVIDEO_HOST_TEST
+static const SWISS_BOOT *SwissVideoBoot(void)
+{
+	const SWISS_BOOT *b = (const SWISS_BOOT *)SWISS_BOOT_ADDR_ARM;
+	sync_before_read((void *)b, sizeof(SWISS_BOOT));
+	return (b->Magic == SWISS_BOOT_MAGIC) ? b : NULL;
+}
+#else
+extern SWISS_BOOT test_swiss_boot;
+static const SWISS_BOOT *SwissVideoBoot(void)
+{
+	return (test_swiss_boot.Magic == SWISS_BOOT_MAGIC) ? &test_swiss_boot : NULL;
+}
+#endif
 
 bool SwissVideoEnabled(void)
 {
-	if (!ConfigGetConfig(NIN_CFG_960I))
-		return false;
-	/* The Wii U only scales the video signal, it can not output 960i. */
+	/* The Wii U only scales the video signal. (The loader checks this too.) */
 	if (IsWiiU())
 		return false;
-	/*
-		960i uses progressive (31kHz) timings, like Swiss this requires
-		an EDTV capable output (component cable with progressive enabled).
-	*/
-	if (!(ConfigGetVideoMode() & NIN_VID_PROG))
-		return false;
+	return SwissVideoBoot() != NULL;
+}
+
+bool SwissVideoSramFlags(bool *progressive, bool *pal60)
+{
+	const SWISS_BOOT *b = SwissVideoBoot();
+	if (IsWiiU() || !b || b->gameVMode <= 0)
+		return false;	/* Auto: Nintendont's own SRAM settings */
+	*progressive = b->sramProgressive;
+	*pal60 = b->sram60Hz;
 	return true;
 }
 
-/*
-	Mirrors Swiss' config_load_current() for "Video Mode: 960i" with all
-	other per game video options left on Auto, on an AVE-RVL (Wii) system.
-*/
+bool SwissVideoWidescreen(void)
+{
+	const SWISS_BOOT *b = SwissVideoBoot();
+	return SwissVideoEnabled() && b->forceWidescreen;
+}
+
+/* Copies the loader's settings into Swiss' swissSettings. */
 static void SwissVideoSetup(void)
 {
-	u32 GameID = ConfigGetGameID();
-	char game_id[4];
-	u32 i;
-
-	game_id[0] = GameID >> 24;
-	game_id[1] = GameID >> 16;
-	game_id[2] = GameID >> 8;
-	game_id[3] = GameID;
+	const SWISS_BOOT *b = SwissVideoBoot();
 
 	memset(&swissSettings, 0, sizeof(swissSettings));
-	/*
-		Swiss' "AVE Compatibility" setting, chosen in the menu. Every mode
-		except AVE-RVL also sets the VI's non-interlaced (NIN) bit for 960i.
-		AVE-RVL is the one that gives a picture on the Wii (the others gave
-		a black screen in testing). make SWISSVIDEO_AVE=... forces one.
-	*/
-#ifdef SWISSVIDEO_AVE_COMPAT
-	swissSettings.aveCompat = SWISSVIDEO_AVE_COMPAT;
-#else
-	{
-		static const u8 compatMap[NIN_960I_COMPAT_COUNT] = {
-			[NIN_960I_AVE_RVL]   = AVE_RVL_COMPAT,
-			[NIN_960I_GCVIDEO]   = GCVIDEO_COMPAT,
-			[NIN_960I_GCDIGITAL] = GCDIGITAL_COMPAT,
-			[NIN_960I_CMPV_DOL]  = CMPV_DOL_COMPAT,
-			[NIN_960I_AVE_N_DOL] = AVE_N_DOL_COMPAT,
-			[NIN_960I_AVE_P_DOL] = AVE_P_DOL_COMPAT,
-		};
-		swissSettings.aveCompat = compatMap[Nin960iCompat(ConfigGetConfigWord())];
-	}
-#endif
-	swissSettings.sramVideo = (BI2region == BI2_REGION_PAL) ? SYS_VIDEO_PAL : SYS_VIDEO_NTSC;
+	if (!b)
+		return;
 
-	/* Swiss "Video Mode": 4 = 960i by default, see gameVModeStr in Swiss */
-	swissSettings.gameVMode = swv_ovr_vmode >= 0 ? swv_ovr_vmode : 4;
+	swissSettings.gameVMode = b->gameVMode;
+	swissSettings.aveCompat = b->aveCompat;
+	swissSettings.forceDTVStatus = b->forceDTVStatus;
+	swissSettings.rt4kOptim = b->rt4kOptim;
+	swissSettings.forceVideoActive = b->forceVideoActive;
+	swissSettings.forceHScale = b->forceHScale;
+	swissSettings.forceVOffset = b->forceVOffset;
+	swissSettings.forceVFilter = b->forceVFilter;
+	swissSettings.forceVJitter = b->forceVJitter;
+	swissSettings.fixPixelCenter = b->fixPixelCenter;
+	swissSettings.disableDithering = b->disableDithering;
+	swissSettings.forceAnisotropy = b->forceAnisotropy;
+	swissSettings.forceWidescreen = b->forceWidescreen;
+	swissSettings.sramVideo = b->sramVideo;
+	swissSettings.sram60Hz = b->sram60Hz;
+	swissSettings.sramProgressive = b->sramProgressive;
 
-	/* From here on this mirrors Swiss' config_load_current() */
-	swissSettings.sram60Hz = in_range(swissSettings.gameVMode, 1, 7);
-	swissSettings.sramProgressive = in_range(swissSettings.gameVMode, 4, 7) || in_range(swissSettings.gameVMode, 11, 14);
-
-	if (swissSettings.sram60Hz) {
-		for (i = 0; i < countof(gameVModePalEntries); i++) {
-			if (memcmp(game_id, gameVModePalEntries[i], 4) == 0) {
-				swissSettings.gameVMode += 7;	/* e.g. 960i -> 1152i */
-				break;
-			}
-		}
-	}
-
-	if (swissSettings.sramVideo == SYS_VIDEO_PAL)
-		swissSettings.sramProgressive &= swissSettings.sram60Hz;
-	else
-		swissSettings.sram60Hz = 0;
-
+	/* Experiments build: /nin960i_vi.txt overrides */
+	if (swv_ovr_vmode >= 0) swissSettings.gameVMode = swv_ovr_vmode;
 	if (swv_ovr_vjitter >= 0) swissSettings.forceVJitter = swv_ovr_vjitter;
 	if (swv_ovr_vfilter >= 0) swissSettings.forceVFilter = swv_ovr_vfilter;
 	if (swv_ovr_avecompat >= 0) swissSettings.aveCompat = swv_ovr_avecompat;
+#ifdef SWISSVIDEO_AVE_COMPAT
+	/* make SWISSVIDEO_AVE=... forces a compatibility mode */
+	swissSettings.aveCompat = SWISSVIDEO_AVE_COMPAT;
+#endif
 
-	/* "Auto" defaults Swiss applies per mode */
+	/*
+		The mode Swiss initialises the VI with before booting the game
+		(ogc_video__reset()); the loader does the same on the Wii side.
+	*/
 	switch (swissSettings.gameVMode) {
-		case 2: case 9: case 5: case 12:
-			if (!swissSettings.forceVFilter)
-				swissSettings.forceVFilter = 1;
-			break;
-		case 3: case 10:
-			swissSettings.forceVOffset &= ~1;
-			if (!swissSettings.forceVFilter)
-				swissSettings.forceVFilter = 1;
-			if (!swissSettings.forceVJitter)
-				swissSettings.forceVJitter = 2;
-			break;
-		case 4: case 11:
-			swissSettings.forceVOffset &= ~1;
-			if (!swissSettings.forceVFilter)
-				swissSettings.forceVFilter = 1;
-			if (!swissSettings.forceVJitter)
-				swissSettings.forceVJitter = 1;	/* force field rendering */
-			break;
-		case 6: case 13:
-			if (!swissSettings.forceHScale)
-				swissSettings.forceHScale = 1;
-			swissSettings.forceVOffset &= ~1;
-			if (!swissSettings.forceVFilter)
-				swissSettings.forceVFilter = 1;
-			if (!swissSettings.forceVJitter)
-				swissSettings.forceVJitter = 1;
-			break;
-		case 7: case 14:
-			if (!swissSettings.forceHScale)
-				swissSettings.forceHScale = 1;
-			swissSettings.forceVOffset &= ~1;
-			if (!swissSettings.forceVFilter)
-				swissSettings.forceVFilter = 1;
+		case 1: case 2:		swiss_newmode.viTVMode = 0; break;	/* NTSC interlaced */
+		case 3:			swiss_newmode.viTVMode = 1; break;	/* NTSC DS (240p) */
+		case 4 ... 7:		swiss_newmode.viTVMode = VI_TVMODE_NTSC_PROG; break;
+		case 8: case 9:		swiss_newmode.viTVMode = 4; break;	/* PAL interlaced */
+		case 10:		swiss_newmode.viTVMode = 5; break;	/* PAL DS (288p) */
+		case 11 ... 14:		swiss_newmode.viTVMode = VI_TVMODE_PAL_PROG; break;
+		default:	/* Auto */
+			switch (swissSettings.sramVideo) {
+				case SYS_VIDEO_PAL:	swiss_newmode.viTVMode = 4; break;
+				case SYS_VIDEO_MPAL:	swiss_newmode.viTVMode = 8; break;
+				default:		swiss_newmode.viTVMode = 0; break;
+			}
 			break;
 	}
 
-	/* Swiss initialises the VI with this mode before booting the game
-	   (ogc_video__reset): progressive for 4-7 / 11-14, else interlaced */
-	if (in_range(swissSettings.gameVMode, 4, 7))
-		swiss_newmode.viTVMode = VI_TVMODE_NTSC_PROG;
-	else if (in_range(swissSettings.gameVMode, 11, 14))
-		swiss_newmode.viTVMode = VI_TVMODE_PAL_PROG;
-	else if (swissSettings.gameVMode == 3)
-		swiss_newmode.viTVMode = 1;	/* NTSC DS (240p) */
-	else if (swissSettings.gameVMode == 10)
-		swiss_newmode.viTVMode = 5;	/* PAL DS (288p) */
-	else if (in_range(swissSettings.gameVMode, 8, 9))
-		swiss_newmode.viTVMode = 4;	/* PAL interlaced */
-	else
-		swiss_newmode.viTVMode = 0;	/* NTSC interlaced */
-
-	swv_log("SwissVideo:gameVMode %i, forceVJitter %i, forceVFilter %i, aveCompat %i, sramVideo %i, 60Hz %i, progressive %i\r\n",
-		swissSettings.gameVMode, swissSettings.forceVJitter, swissSettings.forceVFilter, swissSettings.aveCompat,
-		swissSettings.sramVideo, swissSettings.sram60Hz, swissSettings.sramProgressive);
+	swv_log("SwissVideo:gameVMode %i, aveCompat %i, forceHScale %i, forceVOffset %i, forceVFilter %i, forceVJitter %i\r\n",
+		swissSettings.gameVMode, swissSettings.aveCompat, swissSettings.forceHScale,
+		swissSettings.forceVOffset, swissSettings.forceVFilter, swissSettings.forceVJitter);
+	swv_log("SwissVideo:fixPixelCenter %i, disableDithering %i, forceAnisotropy %i, forceWidescreen %i, forceDTVStatus %i, rt4k %i, videoActive %i\r\n",
+		swissSettings.fixPixelCenter, swissSettings.disableDithering, swissSettings.forceAnisotropy,
+		swissSettings.forceWidescreen, swissSettings.forceDTVStatus, swissSettings.rt4kOptim,
+		swissSettings.forceVideoActive);
+	swv_log("SwissVideo:sramVideo %i, 60Hz %i, progressive %i, viTVMode %i\r\n",
+		swissSettings.sramVideo, swissSettings.sram60Hz, swissSettings.sramProgressive,
+		swiss_newmode.viTVMode);
 }
 
 void SwissVideoPatch(char *Buffer, u32 Length)
@@ -969,6 +984,11 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	swv_length = Length;
 
 	Patch_Video((u32 *)Buffer, Length, PATCH_DOL);
+	/* Same order as Swiss' Patch_ExecutableFile() */
+	if (swissSettings.forceWidescreen)
+		Patch_Widescreen((u32 *)Buffer, Length, PATCH_DOL);
+	if (swissSettings.forceAnisotropy)
+		Patch_TexFilt((u32 *)Buffer, Length, PATCH_DOL);
 
 	sync_after_write(Buffer, Length);
 	SwissVideoFlushVars();

@@ -3,17 +3,18 @@ Nintendont 960i - TEST BUILD
 
 What this is
 ------------
-A test build of Nintendont that can force GameCube games to use field
-rendering and output 960i (1152i for a few PAL games), like the
-"Video Mode: 960i" option of Swiss. Each field is rendered at 480 lines,
-so the game is drawn at twice the usual vertical resolution.
+A test build of Nintendont with the video options of Swiss ported to it:
+forced video modes (240p, 480p, 960i, 1080i, ...), forced field
+rendering, vertical filters, scaling, anisotropic filtering, widescreen
+and more. With 960i each field is rendered at 480 lines, so the game is
+drawn at twice the usual vertical resolution.
 
-It uses Swiss's own video patches (AVE-RVL compatibility mode), ported to
-Nintendont. Swiss and its video code are by emu_kidid, Extrems and
-contributors: https://github.com/emukidid/swiss-gc
+These are Swiss's own video patches, ported to Nintendont. Swiss and its
+video code are by emu_kidid, Extrems and contributors:
+https://github.com/emukidid/swiss-gc
 
-IMPORTANT: display compatibility
---------------------------------
+IMPORTANT: display compatibility (960i)
+---------------------------------------
 The Wii's video encoder only accepts 960i flagged as 480p. It regenerates
 the sync itself, so the signal really is 960i (fields offset by half a
 line), but the vertical sync has no proper equalization pulses. Some
@@ -22,51 +23,58 @@ vertically or there is no signal). That is a property of the Wii's
 encoder, not something this build can fix. We are trying to find out
 which displays work - please report your results either way.
 
+Only 960i, 480p and 480i have been tested on a Wii so far. The other
+modes are offered like Swiss offers them on a GameCube and are untested.
+
 Requirements
 ------------
 - An original Wii (not Wii U / vWii)
-- Component cables
-- Progressive scan (480p) enabled in the Wii settings
-- A display, scaler or capture device that accepts 960i
+- For 960i, 480p and the other progressive modes: component cables and
+  progressive scan (480p) enabled in the Wii settings
+- For 960i: a display, scaler or capture device that accepts 960i
 
 Installing
 ----------
 Copy the "apps" folder to the root of your SD card or USB drive. It goes
 into apps/Nintendont-960i and shows up in the Homebrew Channel as
 "Nintendont 960i (test build)". It does not replace your normal
-Nintendont, and both share the same settings.
+Nintendont. Both share nincfg.bin; the Swiss video settings are kept in
+their own file, nincfg_swiss.bin, which normal Nintendont ignores.
 
 Using it
 --------
 1. Start "Nintendont 960i (test build)".
-2. Open Settings. In the right column, set "960i Field Render" to
-   AVE-RVL. (It is grayed out if component cables / progressive scan
-   aren't set up.)
-3. Start a game.
+2. Open Settings. In the right column, select "Swiss Video" and press A.
+3. On the Swiss Video Settings page, set "Swiss Video Patches" to On and
+   pick a mode in "NTSC Video Mode" / "PAL Video Mode" (e.g. 960i).
+   Keep "AVE Compatibility" on AVE-RVL (the Wii's video encoder).
+   Up/Down select, Left/Right/A change, B goes back.
+4. Start a game.
 
-"960i Field Render" cycles through Off and Swiss's "AVE Compatibility"
-modes:
-  AVE-RVL    The Wii's own video encoder. Use this one.
-  GCVideo, GCDigital, CMPV-DOL, AVE N-DOL, AVE P-DOL
-             The modes Swiss uses on a GameCube with these video
-             encoders/mods. A Wii always has an AVE-RVL, so these are
-             only here for experimenting; in testing GCVideo and
-             CMPV-DOL gave a black screen. If you get a black screen,
-             power off the Wii and set it back to AVE-RVL or Off.
+Each setting is explained on the right side of the page. Progressive
+modes only show up when the Wii has a component cable and progressive
+scan enabled (or "Force DTV Status" is Yes); 1080i and 540p only with
+CMPV-DOL compatibility, like in Swiss. If you get a black screen, power
+off the Wii and set "Swiss Video Patches" to Off, or the video mode back
+to Auto, or AVE Compatibility back to AVE-RVL.
 
-Any setting other than Off makes the build ignore Nintendont's own
-video options (Force Progressive, Video Mode, Video Width, Screen
-Position). Set it to Off to use Nintendont normally.
+While "Swiss Video Patches" is On, Nintendont's own video options (Force
+Progressive, Video Mode, Video Width, Screen Position) are ignored. Turn it
+Off to use Nintendont normally.
+
+If you used an earlier test build with "960i Field Render" On, that
+becomes Swiss Video Patches On with 960i for NTSC and PAL games.
 
 Reporting results
 -----------------
 Please report:
 - Game name and region (NTSC / PAL)
 - Display / scaler model and how it is connected
-- The "960i Field Render" mode used (AVE-RVL, GCVideo, ...)
+- The Swiss Video settings you used (video mode, AVE compatibility, ...)
 - Result: stable picture / rolls vertically / no signal / other
 - The file nin960i.log from the root of your SD card or USB drive
-  (written by this build every time a game starts in 960i mode)
+  (written by this build every time a game starts with the Swiss video
+  patches)
 
 Source code
 -----------

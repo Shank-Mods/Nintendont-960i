@@ -7,9 +7,13 @@
 
 	Build and run (big endian PowerPC, e.g. under qemu-ppc):
 		make -C kernel/swissvideo/test
-		qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALE [P]
+		qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALE [P|N] [name=value ...]
 
-	The optional "P" marks a PAL disc (BI2 region), which selects PAL60.
+	"P" marks a PAL disc (BI2 region). The settings default to what the
+	loader passes for 960i with everything else on Auto; name=value pairs
+	(decimal, Swiss numbering) change them:
+		vmode ave dtv rt4k active hscale voffset vfilter vjitter
+		pixel dither aniso wide prog 60hz
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +24,34 @@
 
 u32 BI2region = 0;
 u32 test_game_id = 0;
+SWISS_BOOT test_swiss_boot;
+
+static void set_option(const char *opt)
+{
+	char name[16];
+	int v;
+	if (sscanf(opt, "%15[^=]=%d", name, &v) != 2) {
+		fprintf(stderr, "bad option %s\n", opt);
+		exit(1);
+	}
+	SWISS_BOOT *b = &test_swiss_boot;
+	if (!strcmp(name, "vmode")) b->gameVMode = v;
+	else if (!strcmp(name, "ave")) b->aveCompat = v;
+	else if (!strcmp(name, "dtv")) b->forceDTVStatus = v;
+	else if (!strcmp(name, "rt4k")) b->rt4kOptim = v;
+	else if (!strcmp(name, "active")) b->forceVideoActive = v;
+	else if (!strcmp(name, "hscale")) b->forceHScale = v;
+	else if (!strcmp(name, "voffset")) b->forceVOffset = v;
+	else if (!strcmp(name, "vfilter")) b->forceVFilter = v;
+	else if (!strcmp(name, "vjitter")) b->forceVJitter = v;
+	else if (!strcmp(name, "pixel")) b->fixPixelCenter = v;
+	else if (!strcmp(name, "dither")) b->disableDithering = v;
+	else if (!strcmp(name, "aniso")) b->forceAnisotropy = v;
+	else if (!strcmp(name, "wide")) b->forceWidescreen = v;
+	else if (!strcmp(name, "prog")) b->sramProgressive = v;
+	else if (!strcmp(name, "60hz")) b->sram60Hz = v;
+	else { fprintf(stderr, "unknown option %s\n", name); exit(1); }
+}
 
 #define MEM1_SIZE	0x01800000
 #define PATCH_TOP	0x2FA0	/* roughly where Nintendont's patch area starts */
@@ -43,7 +75,7 @@ typedef struct {
 int main(int argc, char **argv)
 {
 	if (argc < 3) {
-		fprintf(stderr, "usage: %s main.dol GAMEID4 [P]\n", argv[0]);
+		fprintf(stderr, "usage: %s main.dol GAMEID4 [P|N] [name=value ...]\n", argv[0]);
 		return 1;
 	}
 	if (mmap((void *)MEM1_BASE, MEM1_SIZE, PROT_READ | PROT_WRITE,
@@ -62,6 +94,20 @@ int main(int argc, char **argv)
 
 	memcpy(&test_game_id, argv[2], 4);	/* big endian host: matches ConfigGetGameID */
 	BI2region = (argc > 3 && argv[3][0] == 'P') ? BI2_REGION_PAL : BI2_REGION_USA;
+
+	/* 960i, AVE-RVL, everything else Auto (what the loader works out) */
+	memset(&test_swiss_boot, 0, sizeof(test_swiss_boot));
+	test_swiss_boot.Magic = SWISS_BOOT_MAGIC;
+	test_swiss_boot.gameVMode = 4;
+	test_swiss_boot.aveCompat = 5;
+	test_swiss_boot.forceVFilter = 1;
+	test_swiss_boot.forceVJitter = 1;
+	test_swiss_boot.sramVideo = (BI2region == BI2_REGION_PAL) ? 1 : 0;
+	test_swiss_boot.sramProgressive = 1;
+	test_swiss_boot.sram60Hz = (BI2region == BI2_REGION_PAL) ? 1 : 0;
+	for (int a = 3; a < argc; a++)
+		if (strchr(argv[a], '='))
+			set_option(argv[a]);
 
 	dolhdr *dol = (dolhdr *)file;
 	u32 minoff = 0x81800000, maxoff = 0, i;

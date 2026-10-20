@@ -103,8 +103,8 @@ u32 PADRead(u32 calledByGame)
 	else //this file is only used for hid in the loader
 		MaxPads = 0;
 
-	/* 960i diagnostics: snapshot the VI registers for the kernel log */
-	if(calledByGame && (((NIN_CFG*)0x93004000)->Config & NIN_CFG_960I))
+	/* Swiss video diagnostics: snapshot the VI registers for the kernel log */
+	if(calledByGame && ((SWISS_BOOT*)SWISS_BOOT_ADDR_PPC)->Magic == SWISS_BOOT_MAGIC)
 	{
 		/* VI registers are read 16 bits at a time (like the SDK does),
 		   but uncached MEM2 needs 32 bit stores */

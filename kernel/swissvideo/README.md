@@ -1,52 +1,69 @@
-# 960i mode (Swiss video patches)
+# Swiss video patches
 
-Setting: **960i Field Render** (right column of the settings menu): Off, or
-one of Swiss's "AVE Compatibility" modes (AVE-RVL, GCVideo, GCDigital,
-CMPV-DOL, AVE N-DOL, AVE P-DOL). It is stored as `NIN_CFG_960I` (enable) plus
-a 3 bit mode in `NIN_CFG_960I_COMPAT` (0 = AVE-RVL). On a Wii only AVE-RVL is
-expected to give a picture; the others are there for experiments.
+A port of the video options of [Swiss](https://github.com/emukidid/swiss-gc)
+(by emu_kidid, Extrems and contributors) to Nintendont: forced video modes
+(240p, 480p, 960i, 1080i, ...), forced field rendering, vertical filters,
+horizontal scaling, vertical offset, pixel center fix, alpha dithering,
+anisotropic filtering and widescreen.
 
-This forces GameCube games to use field rendering and outputs 960i
-(1152i for the few PAL games Swiss runs at 50Hz). Each video field gets
-its own full 480 line render instead of every frame being split into two
-240 line fields. It is a port of the "Video Mode: 960i" + "Force Field
-Rendering" options of [Swiss](https://github.com/emukidid/swiss-gc).
+## Settings
 
-## Requirements
+Settings menu, right column: **Swiss Video** (press A) opens its own page.
 
-* An original Wii (not Wii U; its video path can't output 960i).
-* Component cables with progressive scan enabled in the Wii settings.
-* A display or scaler that accepts the Wii's 960i sync (see below).
+| Setting | Values (Swiss numbering) |
+|---|---|
+| Swiss Video Patches | Off / On: master switch |
+| AVE Compatibility | AVE N-DOL, AVE P-DOL, CMPV-DOL, GCDigital, GCVideo, AVE-RVL (default) |
+| Force DTV Status | No, Yes, Region (Switch); not for AVE N-DOL / P-DOL |
+| RetroTINK-4K Input | No / Yes; GCDigital and GCVideo only |
+| Force Video Active | No / Yes |
+| NTSC Video Mode | Auto, 480i, 480sf, 240p, 960i, 480p, 1080i60, 540p60 |
+| PAL Video Mode | the above plus 576i, 576sf, 288p, 1152i, 576p, 1080i50, 540p50 |
+| Horizontal Scale | Auto, 1:1, 11:10, 9:8, 640px, 656px, 672px, 704px, 720px |
+| Vertical Offset | -99 to +99 lines |
+| Vertical Filter | Auto, 0, 1, 2 |
+| Field Rendering | Auto, On, Off, TAA |
+| Fix Pixel Center | No, 1/24, 1/12 |
+| Disable Dithering | No / Yes |
+| Anisotropic Filter | No / Yes |
+| Force Widescreen | No, 3D, 2D+3D |
 
-If the Wii side requirements are missing the kernel silently falls back to the
-normal video handling. Nintendont's own video options (Force Progressive,
-forced video modes, Video Width, Screen Position) are ignored while 960i is
-active. The setting is bit 20 of `NIN_CFG.Config`; the config version stays
-at 10 so settings stay compatible with official Nintendont.
+Like in Swiss, progressive modes (960i, 480p, 1080i, 540p, 1152i, 576p) can
+only be picked with DTV status (component cable + progressive scan in the
+Wii settings, or Force DTV Status), and 1080i/540p only with CMPV-DOL.
+Settings that don't apply to the chosen compatibility mode can't be changed.
+While the master switch is on, Nintendont's own Force Progressive, Video
+Mode, Video Width and Screen Position are ignored, and Force Widescreen is
+replaced by Swiss's when that is set. Not available on Wii U.
 
-## Display compatibility (findings from hardware testing)
+Only 960i, 480p and 480i have been tested on a Wii so far (AVE-RVL). The
+other modes are exposed as on a GameCube and are untested.
 
-Tested on a Wii with component output, NTSC Kirby Air Ride:
+## Where the settings live
 
-* The VI ends up programmed exactly like Swiss's AVE-RVL mode: progressive
-  flag (`DCR 0005`), 54 MHz clock, 1049 half-line frames
-  (equ 12, prb 48/49, psb 5/4).
-* The AVE-RVL only accepts 960i flagged as 480p and regenerates the sync
-  itself. Per Extrems, the result is real 960i (the half line offsets the
-  fields) but without proper equalization pulses. The tested monitor and two
-  sync detectors could not hold vertical lock (picture rolls, only brief
-  locks). Displays with more tolerant sync handling may work.
-* Swiss's forced 480p and 480i modes work fine on the same setup, as do
-  progressive frames of other whole-line lengths (526 lines). Flagging 960i
-  as interlaced at 54 MHz gives no output at all. Swiss's pre-July-2026 960i
-  timing (equ 6, prb 70/71, psb 1/0) behaves the same.
+* `/nincfg_swiss.bin` on the boot device holds `SWISS_CFG`
+  (`common/include/SwissVideoConfig.h`). `nincfg.bin` is unchanged, so it
+  stays compatible with official Nintendont. Settings of the early 960i test
+  builds (bits 20-23 of `NIN_CFG.Config`) are moved over once and cleared.
+* When a game boots, the loader (`loader/source/swissvideo.c`) works out the
+  values for that game, as Swiss's `config_load_current()` does: NTSC or PAL
+  mode by region, the 50Hz variant for Swiss's PAL-only games (960i becomes
+  1152i), no progressive modes without DTV status, the per-mode "Auto"
+  defaults, and Swiss's per-game pixel center / anisotropy defaults. The
+  result (`SWISS_BOOT`) is placed at `0x93004840`, next to `NIN_CFG`, for
+  the kernel.
+* The loader also starts the game in the forced mode (Swiss's
+  `ogc_video__reset()`), which on a Wii sets up the A/V encoder, and sets the
+  SRAM progressive / PAL60 flags. "Auto" keeps the game's own video mode;
+  Swiss's "Auto (Progressive)" isn't offered, pick 480p instead.
 
 ## How it works
 
-`kernel/SwissVideo.c` hosts Swiss's `Patch_Video()` unmodified apart from a
-few mechanical edits. It runs on the game executable right after it has been
-loaded, before Nintendont's own pattern patching. The code Swiss uses for
-960i on AVE-RVL (the Wii's video encoder) does the following:
+`kernel/SwissVideo.c` hosts Swiss's `Patch_Video()`, `Patch_Widescreen()` and
+`Patch_TexFilt()`, unmodified apart from a few mechanical edits. They run on
+the game executable right after it has been loaded, before Nintendont's own
+pattern patching (whose video patches are skipped). For 960i on AVE-RVL (the
+Wii's video encoder) Swiss's code does the following:
 
 * `__VIRetraceHandler` records the parity of the next field
   (`VIRetraceHandlerHook`), and `GXCopyDisp` latches it as the field being
@@ -62,20 +79,46 @@ loaded, before Nintendont's own pattern patching. The code Swiss uses for
 * `OSGetProgressiveMode` / `OSGetEuRgb60Mode` / `__VIInit` are patched so the
   game starts in a progressive (31kHz) mode.
 
-Low memory variables shared with the stubs live at `0x800009E0-0x800009FF`
-(`reservedarea.h`). The PPC entry stub (`kernel/asm/FakeEntryLoad.S`)
-invalidates that cache line before the game starts.
+Force Widescreen hooks `C_MTXFrustum` / `C_MTXPerspective` (and their light
+variants, `GXSetProjection` as a fallback; `C_MTXOrtho` and `GXSetScissor`
+for 2D+3D). Force Anisotropic Filter hooks `GXInitTexObjLOD`.
+
+Low memory variables shared with the stubs live at `0x800009DC-0x800009FF`
+(`reservedarea.h`, Swiss's layout except `VAR_RMODE`). The PPC entry stub
+(`kernel/asm/FakeEntryLoad.S`) invalidates those cache lines before the game
+starts.
+
+## Display compatibility (960i, findings from hardware testing)
+
+Tested on a Wii with component output, NTSC Kirby Air Ride:
+
+* The VI ends up programmed exactly like Swiss's AVE-RVL mode: progressive
+  flag (`DCR 0005`), 54 MHz clock, 1049 half-line frames
+  (equ 12, prb 48/49, psb 5/4).
+* The AVE-RVL only accepts 960i flagged as 480p and regenerates the sync
+  itself. Per Extrems, the result is real 960i (the half line offsets the
+  fields) but without proper equalization pulses. The tested monitor and two
+  sync detectors could not hold vertical lock (picture rolls, only brief
+  locks). Displays with more tolerant sync handling may work.
+* Swiss's forced 480p and 480i modes work fine on the same setup, as do
+  progressive frames of other whole-line lengths (526 lines). Flagging 960i
+  as interlaced at 54 MHz gives no output at all. Swiss's pre-July-2026 960i
+  timing (equ 6, prb 70/71, psb 1/0) behaves the same.
+* GCVideo and CMPV-DOL compatibility gave a black screen on a stock Wii.
 
 ## Updating from Swiss
 
 ```
 python3 kernel/swissvideo/port_patch_video.py <swiss-gc>/cube/swiss/source/patcher.c \
-	kernel/swissvideo/Patch_Video.inc kernel/swissvideo/video_tables.inc
+	kernel/swissvideo/Patch_Video.inc kernel/swissvideo/video_tables.inc \
+	kernel/swissvideo/Patch_Extras.inc
 ```
 
-Then copy any changed stubs from `<swiss-gc>/cube/swiss/source/patches/{gx,vi}`
-into `stubs/`, removing the trailing `*Length` / `*_size` labels. Sizes come
-from bin2h instead.
+Then copy any changed stubs from
+`<swiss-gc>/cube/swiss/source/patches/{gx,mtx,vi}` into `stubs/`, removing
+the trailing `*Length` / `*_size` labels. Sizes come from bin2h instead. If
+Swiss's `config_load_current()` changes, update `SwissVideoPrepareBoot()` in
+the loader.
 
 Ported from swiss-gc commit `39a0867ec0350f152f6395d932cf4457d49eb825`.
 
@@ -86,7 +129,8 @@ from the root of the boot device (templates in `ave/`):
 
 * `nin960i_vi.txt`: Swiss settings (`gamevmode`, `forcevjitter`,
   `forcevfilter`, `avecompat`, `swiss=0` for a baseline) and 960i timing
-  fields (`equ`, `prbodd`, `psbodd`, `nhlines`, ...).
+  fields (`equ`, `prbodd`, `psbodd`, `nhlines`, ...). These override the
+  settings page.
 * `nin960i_ave.txt`: raw AVE-RVL register writes (`RR=VV`). Register 00 bit 0
   shows the encoder's color bar test pattern; `01=23` is RVLoader's VGA mode.
 
@@ -94,9 +138,10 @@ Normal builds ignore both files.
 
 ## Diagnostics
 
-Every 960i boot writes `/nin960i.log` to the boot device: settings, the
-timing used, every Swiss signature found (`Found:[...]`) and ten snapshots
-of the VI registers (captured by PADRead, logged ~3 s apart).
+Every boot with the Swiss video patches writes `/nin960i.log` to the boot
+device: the settings used, the timing, every Swiss signature found
+(`Found:[...]`) and ten snapshots of the VI registers (captured by PADRead,
+logged ~3 s apart).
 
 ## Testing without a Wii
 
@@ -107,8 +152,9 @@ every word it changed:
 ```
 make -C kernel/swissvideo                  # stub headers (devkitPPC)
 make -C kernel/swissvideo/test CC=powerpc-linux-gnu-gcc
-qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALE      # NTSC
-qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALP P    # PAL
+qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALE              # NTSC, 960i
+qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALP P            # PAL
+qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALE vmode=3 wide=2 aniso=1
 ```
 
 ## Not ported (yet)
@@ -116,6 +162,4 @@ qemu-ppc kernel/swissvideo/test/swissvideo_test main.dol GALP P    # PAL
 * `Patch_GameSpecificVideo()`, Swiss's per-game fixes for games whose own
   code breaks with forced video modes. Its offsets are DOL file offsets
   and need converting to load addresses.
-* The other Swiss video modes (240p, 1080i, 540p, ...) and options (TAA,
-  horizontal scaling, vertical filter selection). `Patch_Video()` already
-  supports them; only settings and menu entries would be needed.
+* Per-game settings. Swiss keeps settings per game; here they are global.

@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "update.h"
 #include "titles.h"
 #include "dip.h"
+#include "swissvideo.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -526,7 +527,7 @@ static DevState LoadGameList(gameinfo *gi, u32 sz, u32 *pGameCount)
 // Menu selection context.
 typedef struct _MenuCtx
 {
-	u32 menuMode;		// Menu mode. (0 == games; 1 == settings)
+	u32 menuMode;		// Menu mode. (0 == games; 1 == settings; 2 == Swiss video settings)
 	bool redraw;		// If true, redraw is required.
 	bool selected;		// If true, the user selected a game.
 	bool saveSettings;	// If true, save settings to nincfg.bin.
@@ -557,6 +558,11 @@ typedef struct _MenuCtx
 		u32 settingPart;	// 0 == left column; 1 == right column
 		s32 posX;		// Selected setting index.
 	} settings;
+
+	// Swiss video settings page.
+	struct {
+		s32 posX;		// Selected setting index.
+	} swiss;
 } MenuCtx;
 
 /** Key repeat wrapper functions. **/
@@ -1098,21 +1104,20 @@ static const char *const *GetSettingsDescription(const MenuCtx *ctx)
 			}
 
 			case 9: {
-				// 960i (Swiss field rendering)
-				static const char *desc_960i[] = {
-					"Forces field rendering and",
-					"outputs 960i (1152i for",
-					"some PAL games). Needs",
-					"component cables and 480p.",
+				// Swiss video settings page
+				static const char *desc_swiss[] = {
+					"Press A to open the Swiss",
+					"video settings: forced",
+					"video modes (960i, 240p,",
+					"480p, ...), field render-",
+					"ing, filters, anisotropic",
+					"filtering and widescreen.",
 					"",
-					"Picks Swiss's AVE Compat",
-					"mode. AVE-RVL is the Wii's",
-					"own encoder; the others",
-					"gave no picture in tests.",
-					"Not all displays lock on.",
+					"Ported from Swiss. Not",
+					"available on Wii U.",
 					NULL
 				};
-				return desc_960i;
+				return desc_swiss;
 			}
 
 			default:
@@ -1124,17 +1129,6 @@ static const char *const *GetSettingsDescription(const MenuCtx *ctx)
 	return NULL;
 }
 
-
-/**
- * Check if the 960i mode can be used.
- * It uses progressive timings, so like Swiss it needs an EDTV
- * capable output. The Wii U can not output it at all.
- * @return True if 960i can be used.
- */
-static bool Is960iAvailable(void)
-{
-	return !IsWiiU() && (CONF_GetProgressiveScan() > 0) && VIDEO_HaveComponentCable();
-}
 
 /**
  * Update the Settings menu.
@@ -1467,20 +1461,10 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 					break;
 
 				case 9:
-					// 960i (Swiss field rendering)
-					ctx->saveSettings = true;
-					// Off -> AVE-RVL -> GCVideo -> ... -> AVE P-DOL -> Off
-					if (!(ncfg->Config & NIN_CFG_960I)) {
-						ncfg->Config &= ~NIN_CFG_960I_COMPAT;
-						ncfg->Config |= NIN_CFG_960I;
-					} else {
-						u32 compat = Nin960iCompat(ncfg->Config) + 1;
-						ncfg->Config &= ~NIN_CFG_960I_COMPAT;
-						if (compat >= NIN_960I_COMPAT_COUNT)
-							ncfg->Config &= ~NIN_CFG_960I;
-						else
-							ncfg->Config |= compat << NIN_CFG_BIT_960I_COMPAT;
-					}
+					// Swiss video settings page.
+					ctx->menuMode = 2;
+					ctx->swiss.posX = 0;
+					memset(&ctx->held, 0, sizeof(ctx->held));
 					ctx->redraw = true;
 					break;
 
@@ -1676,14 +1660,10 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 		}
 		ListLoopIndex++;
 
-		// 960i (Swiss field rendering), needs an EDTV capable output.
-		static const char *const compat960i[NIN_960I_COMPAT_COUNT] = {
-			"AVE-RVL", "GCVideo", "GCDigital", "CMPV-DOL", "AVE N-DOL", "AVE P-DOL"
-		};
-		PrintFormat(MENU_SIZE, Is960iAvailable() ? BLACK : DARK_GRAY,
+		// Swiss video settings (own page).
+		PrintFormat(MENU_SIZE, SwissVideoAvailable() ? BLACK : DARK_GRAY,
 				MENU_POS_X + 320, SettingY(ListLoopIndex),
-			    "%-18s:%-4s", "960i Field Render", (ncfg->Config & (NIN_CFG_960I))
-				? compat960i[Nin960iCompat(ncfg->Config)] : "Off");
+			    "%-18s:%-4s", "Swiss Video", swcfg->Enabled ? "On " : "Off");
 		ListLoopIndex++;
 
 		// Draw the cursor.
@@ -1700,7 +1680,7 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 		} else {
 			if((IsWiiU() || !(ncfg->Config & (NIN_CFG_BBA_EMU))) && ctx->settings.posX == 7)
 				cursor_color = DARK_GRAY;
-			if(!Is960iAvailable() && ctx->settings.posX == 9)
+			if(!SwissVideoAvailable() && ctx->settings.posX == 9)
 				cursor_color = DARK_GRAY;
 			PrintFormat(MENU_SIZE, cursor_color, MENU_POS_X + 300, SettingY(ctx->settings.posX), ARROW_RIGHT);
 		}
@@ -1725,6 +1705,413 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 	}
 
 	return false;
+}
+
+/** Swiss video settings page **/
+
+enum SwissItem
+{
+	SWV_ENABLED = 0,
+	SWV_AVECOMPAT,
+	SWV_DTVSTATUS,
+	SWV_RT4K,
+	SWV_VIDEOACTIVE,
+	SWV_VMODE_NTSC,
+	SWV_VMODE_PAL,
+	SWV_HSCALE,
+	SWV_VOFFSET,
+	SWV_VFILTER,
+	SWV_VJITTER,
+	SWV_PIXELCENTER,
+	SWV_DITHERING,
+	SWV_ANISO,
+	SWV_WIDESCREEN,
+	SWV_COUNT
+};
+
+// Screen row of each item; the gaps separate the groups.
+static const u8 SwissItemRow[SWV_COUNT] = {
+	0,		// master switch
+	2, 3, 4, 5,	// video encoder
+	7, 8, 9, 10, 11, 12,	// video mode
+	14, 15, 16, 17	// rendering
+};
+
+static const char *const SwissItemLabel[SWV_COUNT] = {
+	"Swiss Video Patches",
+	"AVE Compatibility",
+	"Force DTV Status",
+	"RetroTINK-4K Input",
+	"Force Video Active",
+	"NTSC Video Mode",
+	"PAL Video Mode",
+	"Horizontal Scale",
+	"Vertical Offset",
+	"Vertical Filter",
+	"Field Rendering",
+	"Fix Pixel Center",
+	"Disable Dithering",
+	"Anisotropic Filter",
+	"Force Widescreen",
+};
+
+/**
+ * Can this setting be changed right now? (Swiss blocks some of them
+ * depending on the AVE compatibility mode.)
+ */
+static bool SwissItemChangeable(int item)
+{
+	if (!SwissVideoAvailable())
+		return false;
+	switch (item)
+	{
+		case SWV_DTVSTATUS:
+			return !(swcfg->AveCompat == SWISS_AVE_N_DOL || swcfg->AveCompat == SWISS_AVE_P_DOL);
+		case SWV_RT4K:
+			return (swcfg->AveCompat == SWISS_GCDIGITAL || swcfg->AveCompat == SWISS_GCVIDEO);
+		default:
+			return true;
+	}
+}
+
+/**
+ * Is this setting in effect? Settings are shown in gray, but can still be
+ * changed, while the master switch is off.
+ */
+static bool SwissItemActive(int item)
+{
+	if (!SwissItemChangeable(item))
+		return false;
+	return (item == SWV_ENABLED) || swcfg->Enabled;
+}
+
+static const char *SwissItemValue(int item, char *buf, size_t size)
+{
+	switch (item)
+	{
+		case SWV_ENABLED:	return swcfg->Enabled ? "On" : "Off";
+		case SWV_AVECOMPAT:	return SwissAveCompatStr[swcfg->AveCompat];
+		case SWV_DTVSTATUS:	return SwissDTVStatusStr[swcfg->ForceDTVStatus];
+		case SWV_RT4K:		return swcfg->RT4KOptim ? "Yes" : "No";
+		case SWV_VIDEOACTIVE:	return swcfg->ForceVideoActive ? "Yes" : "No";
+		case SWV_VMODE_NTSC:	return SwissVModeStr[swcfg->VideoModeNtsc];
+		case SWV_VMODE_PAL:	return SwissVModeStr[swcfg->VideoModePal];
+		case SWV_HSCALE:	return SwissHScaleStr[swcfg->ForceHScale];
+		case SWV_VOFFSET:
+			snprintf(buf, size, "%+d", swcfg->ForceVOffset);
+			return buf;
+		case SWV_VFILTER:	return SwissVFilterStr[swcfg->ForceVFilter];
+		case SWV_VJITTER:	return SwissVJitterStr[swcfg->ForceVJitter];
+		case SWV_PIXELCENTER:	return SwissPixelCenterStr[swcfg->FixPixelCenter];
+		case SWV_DITHERING:	return swcfg->DisableDithering ? "Yes" : "No";
+		case SWV_ANISO:		return swcfg->ForceAnisotropy ? "Yes" : "No";
+		case SWV_WIDESCREEN:	return SwissWidescreenStr[swcfg->ForceWidescreen];
+		default:		return "";
+	}
+}
+
+/** Step a value through 0..count-1 with wraparound. */
+static void SwissCycle(u8 *val, int count, int dir)
+{
+	*val = (u8)((*val + count + dir) % count);
+}
+
+/** Step a video mode, skipping the ones Swiss wouldn't offer right now. */
+static void SwissCycleVMode(u8 *val, int count, int dir)
+{
+	int i;
+	for (i = 0; i < count; i++)
+	{
+		SwissCycle(val, count, dir);
+		if (SwissVModeAllowed(*val))
+			break;
+	}
+}
+
+static void SwissItemChange(int item, int dir)
+{
+	switch (item)
+	{
+		case SWV_ENABLED:	swcfg->Enabled ^= 1; break;
+		case SWV_AVECOMPAT:	SwissCycle(&swcfg->AveCompat, SWISS_AVE_COMPAT_MAX, dir); break;
+		case SWV_DTVSTATUS:	SwissCycle(&swcfg->ForceDTVStatus, 3, dir); break;
+		case SWV_RT4K:		swcfg->RT4KOptim ^= 1; break;
+		case SWV_VIDEOACTIVE:	swcfg->ForceVideoActive ^= 1; break;
+		case SWV_VMODE_NTSC:	SwissCycleVMode(&swcfg->VideoModeNtsc, SWISS_VMODE_NTSC_MAX, dir); break;
+		case SWV_VMODE_PAL:	SwissCycleVMode(&swcfg->VideoModePal, SWISS_VMODE_PAL_MAX, dir); break;
+		case SWV_HSCALE:	SwissCycle(&swcfg->ForceHScale, 9, dir); break;
+		case SWV_VOFFSET:
+			swcfg->ForceVOffset += dir;
+			if (swcfg->ForceVOffset > 99) swcfg->ForceVOffset = 99;
+			if (swcfg->ForceVOffset < -99) swcfg->ForceVOffset = -99;
+			break;
+		case SWV_VFILTER:	SwissCycle(&swcfg->ForceVFilter, 4, dir); break;
+		case SWV_VJITTER:	SwissCycle(&swcfg->ForceVJitter, 4, dir); break;
+		case SWV_PIXELCENTER:	SwissCycle(&swcfg->FixPixelCenter, 3, dir); break;
+		case SWV_DITHERING:	swcfg->DisableDithering ^= 1; break;
+		case SWV_ANISO:		swcfg->ForceAnisotropy ^= 1; break;
+		case SWV_WIDESCREEN:	SwissCycle(&swcfg->ForceWidescreen, 3, dir); break;
+		default:		break;
+	}
+}
+
+/** Description of a setting, NULL terminated list of lines. */
+static const char *const *SwissItemDescription(int item)
+{
+	static const char *const desc_enabled[] = {
+		"Uses the video patches of Swiss",
+		"(emu_kidid, Extrems and others)",
+		"instead of Nintendont's own.",
+		"",
+		"While on, Nintendont's Force",
+		"Progressive, Video Mode, Video",
+		"Width and Screen Position are",
+		"ignored.",
+		"",
+		"These settings are saved in",
+		"nincfg_swiss.bin. Not available",
+		"on Wii U.",
+		NULL
+	};
+	static const char *const desc_avecompat[] = {
+		"The audio/video encoder the",
+		"patches are made for:",
+		"",
+		"AVE N-DOL: PAL output as NTSC 50",
+		"AVE P-DOL: no progressive scan",
+		"CMPV-DOL: enables 1080i & 540p",
+		"GCDigital: GCDigital filtering",
+		"GCVideo: GCVideo workarounds",
+		"AVE-RVL: 960i & 1152i on a Wii",
+		"",
+		"A stock Wii has an AVE-RVL. The",
+		"others are for video mods and",
+		"experiments; GCVideo and CMPV-",
+		"DOL gave a black screen on a",
+		"stock Wii.",
+		NULL
+	};
+	static const char *const desc_dtvstatus[] = {
+		"Whether progressive (EDTV)",
+		"video modes can be used:",
+		"",
+		"No: detect it (component cable",
+		"  and 480p set in Wii Settings)",
+		"Yes: always",
+		"Region: Swiss' Region Switch,",
+		"  eases switching between SD",
+		"  and ED TV setups (progressive",
+		"  modes on Japanese Wiis only)",
+		"",
+		"Also what the game is told.",
+		"Not for AVE N-DOL / AVE P-DOL.",
+		NULL
+	};
+	static const char *const desc_rt4k[] = {
+		"For a RetroTINK-4K on HDMI with",
+		"GCDigital or GCVideo. Needs",
+		"recent GCDigital / GCVideo and",
+		"RetroTINK-4K firmware (see",
+		"Swiss for the versions).",
+		"",
+		"Only with GCDigital / GCVideo.",
+		NULL
+	};
+	static const char *const desc_videoactive[] = {
+		"Workaround for GCVideo-DVI",
+		"firmware 3.0. Not needed with",
+		"3.1 or later.",
+		NULL
+	};
+	static const char *const desc_vmode_ntsc[] = {
+		"Video mode for NTSC and",
+		"Japanese games. Auto keeps the",
+		"game's own mode.",
+		"",
+		"480i, 480sf, 240p",
+		"960i, 480p (need DTV status)",
+		"1080i60, 540p60 (also need",
+		"  CMPV-DOL compatibility)",
+		"",
+		"Modes are skipped when they",
+		"can't be used. Only 960i, 480p",
+		"and 480i have been tested on",
+		"a Wii so far.",
+		NULL
+	};
+	static const char *const desc_vmode_pal[] = {
+		"Video mode for PAL games: the",
+		"60Hz modes plus 576i, 576sf,",
+		"288p, 1152i, 576p, 1080i50 and",
+		"540p50.",
+		"",
+		"Progressive modes need DTV",
+		"status, 1080i/540p need",
+		"CMPV-DOL compatibility.",
+		"A few PAL-only games always use",
+		"the 50Hz version (960i becomes",
+		"1152i). Untested on a Wii.",
+		NULL
+	};
+	static const char *const desc_hscale[] = {
+		"Horizontal scaling:",
+		"",
+		"Auto: game's own",
+		"1:1, 11:10, 9:8: pixel aspect",
+		"  ratio",
+		"640px-720px: picture width",
+		"",
+		"1080i and 540p use 1:1 when",
+		"set to Auto.",
+		NULL
+	};
+	static const char *const desc_voffset[] = {
+		"Moves the picture up (-) or",
+		"down (+), in lines.",
+		"",
+		"Use Left / Right to change.",
+		"Rounded to even lines in 240p,",
+		"960i, 1080i and 540p.",
+		NULL
+	};
+	static const char *const desc_vfilter[] = {
+		"480i & 576i:",
+		" Auto: do nothing",
+		"240p & 288p:",
+		" Auto: same as 0",
+		" 0: blend with lower lines",
+		" 1: blend with upper lines",
+		" 2: discard even lines",
+		"Other modes:",
+		" Auto: same as 0",
+		" 0: 3x MSAA resolve only",
+		" 1: 18.75/62.5/18.75% blend",
+		" 2: 25/50/25% blend (deflicker)",
+		"(480sf, 960i and more use 0",
+		"when set to Auto.)",
+		NULL
+	};
+	static const char *const desc_vjitter[] = {
+		"Swiss' Force Field Rendering:",
+		"renders every video field on",
+		"its own, half a line apart.",
+		"",
+		"Auto: per video mode (On for",
+		"  960i, 1152i and 1080i, Off",
+		"  for 240p and 288p)",
+		"On / Off: force it",
+		"TAA: temporal anti-aliasing",
+		NULL
+	};
+	static const char *const desc_pixelcenter[] = {
+		"Corrects the half pixel offset",
+		"of games that render slightly",
+		"off-center. Not the Wii's",
+		"\"480p Pixel Fix\".",
+		"",
+		"Swiss turns this on (1/24) for",
+		"a few games by itself.",
+		NULL
+	};
+	static const char *const desc_dithering[] = {
+		"Turns off the alpha dithering",
+		"some games use, which shows as",
+		"a fine checkerboard pattern.",
+		NULL
+	};
+	static const char *const desc_aniso[] = {
+		"Forces anisotropic texture",
+		"filtering.",
+		"",
+		"Performance can randomly drop",
+		"with it, so use it sparingly.",
+		"Swiss keeps it off for a few",
+		"games.",
+		NULL
+	};
+	static const char *const desc_widescreen[] = {
+		"Forces 16:9 by widening the",
+		"view:",
+		"",
+		"3D: 3D view only",
+		"2D+3D: 3D view and 2D overlays",
+		"",
+		"Replaces Nintendont's Force",
+		"Widescreen while set. Set the",
+		"Wii and TV to 16:9.",
+		NULL
+	};
+	static const char *const *const descs[SWV_COUNT] = {
+		desc_enabled, desc_avecompat, desc_dtvstatus, desc_rt4k,
+		desc_videoactive, desc_vmode_ntsc, desc_vmode_pal, desc_hscale,
+		desc_voffset, desc_vfilter, desc_vjitter, desc_pixelcenter,
+		desc_dithering, desc_aniso, desc_widescreen
+	};
+	return (item >= 0 && item < SWV_COUNT) ? descs[item] : NULL;
+}
+
+/**
+ * Update the Swiss video settings page.
+ * @param ctx	[in] Menu context.
+ */
+static void UpdateSwissVideoMenu(MenuCtx *ctx)
+{
+	if (FPAD_Down_Repeat(ctx))
+	{
+		ctx->swiss.posX = (ctx->swiss.posX + 1) % SWV_COUNT;
+		ctx->redraw = true;
+	}
+	else if (FPAD_Up_Repeat(ctx))
+	{
+		ctx->swiss.posX = (ctx->swiss.posX + SWV_COUNT - 1) % SWV_COUNT;
+		ctx->redraw = true;
+	}
+
+	int dir = 0;
+	if (FPAD_Left_Repeat(ctx))
+		dir = -1;
+	else if (FPAD_Right_Repeat(ctx) || FPAD_OK(0))
+		dir = 1;
+	if (dir != 0 && SwissItemChangeable(ctx->swiss.posX))
+	{
+		SwissItemChange(ctx->swiss.posX, dir);
+		SwissCfgChanged();
+		ctx->saveSettings = true;
+		ctx->redraw = true;
+	}
+
+	if (ctx->redraw)
+	{
+		int i;
+		char buf[16];
+
+		PrintFormat(MENU_SIZE, BLACK, MENU_POS_X + 50, SettingY(0) - 20,
+			    "Swiss Video Settings%s", SwissVideoAvailable() ? "" : " (not available on Wii U)");
+
+		for (i = 0; i < SWV_COUNT; i++)
+		{
+			PrintFormat(MENU_SIZE, SwissItemActive(i) ? BLACK : DARK_GRAY,
+				    MENU_POS_X + 50, SettingY(SwissItemRow[i]),
+				    "%-19s:%s", SwissItemLabel[i], SwissItemValue(i, buf, sizeof(buf)));
+		}
+
+		// Cursor
+		PrintFormat(MENU_SIZE, SwissItemChangeable(ctx->swiss.posX) ? BLACK : DARK_GRAY,
+			    MENU_POS_X + 30, SettingY(SwissItemRow[ctx->swiss.posX]), ARROW_RIGHT);
+
+		// Description of the selected setting
+		const char *const *desc = SwissItemDescription(ctx->swiss.posX);
+		if (desc != NULL)
+		{
+			int line_num = 0;
+			for (; *desc != NULL; desc++, line_num++)
+			{
+				if (**desc != 0)
+					PrintFormat(MENU_SIZE, BLACK, MENU_POS_X + 300, SettingY(line_num), *desc);
+			}
+		}
+		// GRRLIB rendering is done by SelectGame().
+	}
 }
 
 /**
@@ -1832,6 +2219,13 @@ static int SelectGame(void)
 		if( FPAD_Cancel(0) )
 		{
 			// Switch menu modes.
+			if (ctx.menuMode == 2) {
+				// Swiss video settings: back to the settings menu.
+				ctx.menuMode = 1;
+				memset(&ctx.held, 0, sizeof(ctx.held));
+				ctx.redraw = 1;
+				continue;
+			}
 			ctx.menuMode = !ctx.menuMode;
 			memset(&ctx.held, 0, sizeof(ctx.held));
 
@@ -1849,6 +2243,9 @@ static int SelectGame(void)
 		if (ctx.menuMode == 0) {
 			// Game Select menu.
 			ret = UpdateGameSelectMenu(&ctx);
+		} else if (ctx.menuMode == 2) {
+			// Swiss video settings page.
+			UpdateSwissVideoMenu(&ctx);
 		} else {
 			// Settings menu.
 			ret = UpdateSettingsMenu(&ctx);
@@ -1874,6 +2271,11 @@ static int SelectGame(void)
 				// If the selected game is not DISC01, enable "Game Info".
 				color = ((ctx.games.canShowInfo) ? BLACK : DARK_GRAY);
 				PrintFormat(DEFAULT_SIZE, color, MENU_POS_X + 430, MENU_POS_Y + 20*3, "X/1 : Game Info");
+			}
+			else if (ctx.menuMode == 2)
+			{
+				// Swiss video settings page.
+				PrintButtonActions("Go Back", "Change", "Settings", NULL);
 			}
 			else
 			{

@@ -1,5 +1,5 @@
 /*
-Nintendont (Kernel) - Swiss video patch engine (field rendering / 960i)
+Nintendont (Kernel) - Swiss video patch engine
 
 Port of the video patching code of Swiss (https://github.com/emukidid/swiss-gc)
 
@@ -19,8 +19,17 @@ GNU General Public License for more details.
 #include "global.h"
 #endif
 
-/* Returns true when the 960i mode is enabled and usable for this boot. */
+/* Returns true when the Swiss video patches are used for this boot. */
 bool SwissVideoEnabled(void);
+
+/*
+	SRAM flags for a video mode forced in the Swiss video settings.
+	Returns false (flags untouched) if Nintendont's own should be used.
+*/
+bool SwissVideoSramFlags(bool *progressive, bool *pal60);
+
+/* True if Swiss' Force Widescreen replaces Nintendont's. */
+bool SwissVideoWidescreen(void);
 
 /* Patches the loaded game executable (DOL/ELF image already in place). */
 void SwissVideoPatch(char *Buffer, u32 Length);

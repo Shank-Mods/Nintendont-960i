@@ -88,7 +88,7 @@ jobs:
               dir=out/test/apps/Nintendont-960i
               mkdir -p out/test/apps
               cp -r nintendont "$dir"
-              sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i (test build)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>GameCube loader with Swiss-style 960i field rendering</short_description>|" "$dir/meta.xml"
+              sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i (test build)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>GameCube loader with Swiss video patches (960i, 240p, ...)</short_description>|" "$dir/meta.xml"
               cp kernel/swissvideo/release/README_960i.txt out/test/
               grep -h "<name>" out/*/apps/*/meta.xml'
 

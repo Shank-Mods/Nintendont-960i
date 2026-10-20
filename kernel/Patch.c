@@ -1661,6 +1661,9 @@ void DoPatches( char *Buffer, u32 Length, u32 DiscOffset )
 	DisableSIPatch = (!IsWiiU() && TRIGame == TRI_NONE && ConfigGetConfig(NIN_CFG_NATIVE_SI));
 
 	bool PatchWide = ConfigGetConfig(NIN_CFG_FORCE_WIDE);
+	// Swiss' Force Widescreen (Swiss video settings) replaces Nintendont's.
+	if(PatchWide && SwissVideoWidescreen() && !useipl && TRIGame == TRI_NONE)
+		PatchWide = false;
 	if(PatchWide && PatchStaticWidescreen(TITLE_ID, GAME_ID & 0xFF)) //if further patching is needed
 		PatchWide = false;
 
@@ -1687,12 +1690,12 @@ void DoPatches( char *Buffer, u32 Length, u32 DiscOffset )
 		);
 	}*/
 #endif
-	/* 960i: Swiss' video patches replace all of Nintendont's video patches */
+	/* Swiss video settings: Swiss' video patches replace all of Nintendont's video patches */
 	const bool swissVideo = SwissVideoEnabled() && !useipl && TRIGame == TRI_NONE;
 	u32 videoPatches = 0;
 	if( swissVideo )
 	{
-		dbgprintf("Patch:960i mode, using Swiss video patches\r\n");
+		dbgprintf("Patch:using Swiss video patches\r\n");
 		SwissVideoPatch( Buffer, Length );
 	}
 	else if( ConfigGetConfig(NIN_CFG_FORCE_PROG) || (ConfigGetVideoMode() & NIN_VID_FORCE) ||

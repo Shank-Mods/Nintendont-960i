@@ -33,6 +33,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "dip.h"
 #include "global.h"
 #include "ave960i.h"
+#include "swissvideo.h"
 #include "font.h"
 #include "FPad.h"
 #include "menu.h"
@@ -829,6 +830,11 @@ int main(int argc, char **argv)
 			i++;
 		}
 	}
+	// Swiss video settings live in their own file (nincfg_swiss.bin).
+	// Loaded even when booted with arguments, since other loaders
+	// only pass NIN_CFG.
+	bool SaveSwissCfg = SwissCfgLoad();
+
 	ReconfigVideo(rmode);
 	UseSD = (ncfg->Config & NIN_CFG_USB) == 0;
 
@@ -925,6 +931,15 @@ int main(int argc, char **argv)
 			memcpy(&(ncfg->GameID), DIBuf, 4);
 			free(DIBuf);
 		}
+	}
+
+	if(SaveSettings || SaveSwissCfg)
+	{
+		// Swiss video settings, boot device only (the kernel gets them
+		// through memory).
+		SwissCfgSave();
+		if (!SaveSettings)
+			FlushDevices();
 	}
 
 	if(SaveSettings)
@@ -1208,8 +1223,12 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// Swiss video: work out this game's settings for the kernel.
+	SwissVideoPrepareBoot(BI2region, ncfg->GameID,
+		!useipl && !useipltri && IsTRIGame == 0);
+
 	// 960i experiments: A/V encoder writes from /nin960i_ave.txt
-	if (ncfg->Config & NIN_CFG_960I)
+	if (SwissVideoBootInfo())
 		AVE960iLoadFile();
 
 	//sync changes
@@ -1402,12 +1421,16 @@ int main(int argc, char **argv)
 	u32 vidForce = (ncfg->VideoMode & NIN_VID_FORCE);
 	u32 vidForceMode = (ncfg->VideoMode & NIN_VID_FORCE_MASK);
 
-	// 960i mode uses progressive timings and needs an EDTV capable output,
-	// the kernel disables it otherwise (see kernel/SwissVideo.c).
-	bool mode960i = (ncfg->Config & NIN_CFG_960I) && !IsWiiU()
-		&& (ncfg->VideoMode & NIN_VID_PROG);
-	progressive = ((ncfg->Config & NIN_CFG_FORCE_PROG) || mode960i)
-		&& !useipl && !useipltri;
+	progressive = (ncfg->Config & NIN_CFG_FORCE_PROG) && !useipl && !useipltri;
+
+	// The Swiss video patches replace Nintendont's own video options
+	// (Force Progressive, Video Mode). See kernel/SwissVideo.c.
+	const SWISS_BOOT *swb = SwissVideoBootInfo();
+	if (swb)
+	{
+		progressive = false;
+		vidForce = 0;
+	}
 
 	switch (BI2region)
 	{
@@ -1475,6 +1498,28 @@ int main(int argc, char **argv)
 				break;
 		}
 	}
+
+	if (swb && swb->gameVMode > 0)
+	{
+		// Swiss sets up the video mode it forces before booting the game
+		// (ogc_video__reset() in Swiss). On a Wii this also sets up the
+		// A/V encoder, which the game itself never touches.
+		switch (swb->gameVMode)
+		{
+			case 1:			vmode = &TVNtsc480IntDf; break;
+			case 2:			vmode = &TVNtsc480Int; break;
+			case 3:			vmode = &TVNtsc240Ds; break;
+			case 4 ... 7:	vmode = &TVNtsc480Prog; break;
+			case 8: case 9:	vmode = &TVPal576IntDfScale; break;
+			case 10:		vmode = &TVPal264Ds; break;
+			case 11 ... 14:	vmode = &TVPal576ProgScale; break;
+		}
+		if (BI2region == BI2_REGION_PAL)
+			*(vu32*)0x800000CC = swb->sram60Hz ? 5 : 1;	// EURGB60 / PAL
+		else
+			*(vu32*)0x800000CC = 0;	// NTSC
+		gprintf("SwissVideo: boot video mode %s\r\n", SwissVModeStr[swb->gameVMode]);
+	}
 	if((ncfg->Config & NIN_CFG_MEMCARDEMU) == 0) //setup real sram video
 	{
 		syssram *sram;
@@ -1490,9 +1535,6 @@ int main(int argc, char **argv)
 			sram->ntd |= 0x40;
 
 			// TODO: Set the progressive scan flag on PAL?
-			// 960i mode: Swiss enables progressive scan for PAL games too.
-			if (mode960i)
-				sram->flags |= 0x80;
 		}
 		else
 		{
@@ -1513,6 +1555,20 @@ int main(int argc, char **argv)
 				(ncfg->VideoMode & NIN_VID_PROG))
 			{
 				sram->flags |= 0x80;
+			}
+		}
+
+		if (swb && swb->gameVMode > 0)
+		{
+			// A forced Swiss video mode sets these like Swiss does.
+			sram->flags &= ~0x80;
+			if (swb->sramProgressive)
+				sram->flags |= 0x80;
+			if (BI2region == BI2_REGION_PAL)
+			{
+				sram->ntd &= ~0x40;
+				if (swb->sram60Hz)
+					sram->ntd |= 0x40;
 			}
 		}
 

@@ -4,7 +4,7 @@
 CC	?= powerpc-linux-gnu-gcc
 CFLAGS	:= -O1 -g -Wall -Wno-format -std=gnu99 -static -DSWISSVIDEO_HOST_TEST -iquote ../.. -iquote .
 
-swissvideo_test: swissvideo_test.c ../../SwissVideo.c host_env.h ../Patch_Video.inc ../stubs.h
+swissvideo_test: swissvideo_test.c ../../SwissVideo.c host_env.h ../Patch_Video.inc ../Patch_Extras.inc ../stubs.h
 	$(CC) $(CFLAGS) -o $@ swissvideo_test.c ../../SwissVideo.c
 
 clean:
