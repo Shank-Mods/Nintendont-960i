@@ -1102,13 +1102,14 @@ static const char *const *GetSettingsDescription(const MenuCtx *ctx)
 				static const char *desc_960i[] = {
 					"Forces field rendering and",
 					"outputs 960i (1152i for",
-					"some PAL games), doubling",
-					"the vertical resolution.",
+					"some PAL games). Needs",
+					"component cables and 480p.",
 					"",
-					"Needs component cables and",
-					"progressive scan enabled.",
-					"Not every display can lock",
-					"onto the Wii's 960i sync.",
+					"Picks Swiss's AVE Compat",
+					"mode. AVE-RVL is the Wii's",
+					"own encoder; the others",
+					"gave no picture in tests.",
+					"Not all displays lock on.",
 					NULL
 				};
 				return desc_960i;
@@ -1468,7 +1469,18 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 				case 9:
 					// 960i (Swiss field rendering)
 					ctx->saveSettings = true;
-					ncfg->Config ^= (NIN_CFG_960I);
+					// Off -> AVE-RVL -> GCVideo -> ... -> AVE P-DOL -> Off
+					if (!(ncfg->Config & NIN_CFG_960I)) {
+						ncfg->Config &= ~NIN_CFG_960I_COMPAT;
+						ncfg->Config |= NIN_CFG_960I;
+					} else {
+						u32 compat = Nin960iCompat(ncfg->Config) + 1;
+						ncfg->Config &= ~NIN_CFG_960I_COMPAT;
+						if (compat >= NIN_960I_COMPAT_COUNT)
+							ncfg->Config &= ~NIN_CFG_960I;
+						else
+							ncfg->Config |= compat << NIN_CFG_BIT_960I_COMPAT;
+					}
 					ctx->redraw = true;
 					break;
 
@@ -1665,9 +1677,13 @@ static bool UpdateSettingsMenu(MenuCtx *ctx)
 		ListLoopIndex++;
 
 		// 960i (Swiss field rendering), needs an EDTV capable output.
+		static const char *const compat960i[NIN_960I_COMPAT_COUNT] = {
+			"AVE-RVL", "GCVideo", "GCDigital", "CMPV-DOL", "AVE N-DOL", "AVE P-DOL"
+		};
 		PrintFormat(MENU_SIZE, Is960iAvailable() ? BLACK : DARK_GRAY,
 				MENU_POS_X + 320, SettingY(ListLoopIndex),
-			    "%-18s:%-4s", "960i Field Render", (ncfg->Config & (NIN_CFG_960I)) ? "On " : "Off");
+			    "%-18s:%-4s", "960i Field Render", (ncfg->Config & (NIN_CFG_960I))
+				? compat960i[Nin960iCompat(ncfg->Config)] : "Off");
 		ListLoopIndex++;
 
 		// Draw the cursor.

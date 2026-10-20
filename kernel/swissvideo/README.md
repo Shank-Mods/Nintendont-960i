@@ -1,6 +1,10 @@
 # 960i mode (Swiss video patches)
 
-Setting: **960i Field Render** (right column of the settings menu).
+Setting: **960i Field Render** (right column of the settings menu): Off, or
+one of Swiss's "AVE Compatibility" modes (AVE-RVL, GCVideo, GCDigital,
+CMPV-DOL, AVE N-DOL, AVE P-DOL). It is stored as `NIN_CFG_960I` (enable) plus
+a 3 bit mode in `NIN_CFG_960I_COMPAT` (0 = AVE-RVL). On a Wii only AVE-RVL is
+expected to give a picture; the others are there for experiments.
 
 This forces GameCube games to use field rendering and outputs 960i
 (1152i for the few PAL games Swiss runs at 50Hz). Each video field gets

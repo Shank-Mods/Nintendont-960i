@@ -28,6 +28,7 @@ extern u32 BI2region;
 extern u32 test_game_id;
 
 static inline bool ConfigGetConfig(u32 c) { return (c & NIN_CFG_960I) != 0; }
+static inline u32 ConfigGetConfigWord(void) { return NIN_CFG_960I; }
 static inline u32 ConfigGetVideoMode(void) { return NIN_VID_PROG; }
 static inline u32 ConfigGetGameID(void) { return test_game_id; }
 static inline bool IsWiiU(void) { return false; }

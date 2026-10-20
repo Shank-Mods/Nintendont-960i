@@ -105,9 +105,6 @@ enum aveCompat {
 	AVE_COMPAT_MAX
 };
 
-#ifndef SWISSVIDEO_AVE_COMPAT
-#define SWISSVIDEO_AVE_COMPAT AVE_RVL_COMPAT
-#endif
 
 #define SYS_VIDEO_NTSC	0
 #define SYS_VIDEO_PAL	1
@@ -835,11 +832,26 @@ static void SwissVideoSetup(void)
 
 	memset(&swissSettings, 0, sizeof(swissSettings));
 	/*
-		Swiss' "AVE Compatibility" setting. Every mode except AVE-RVL also
-		sets the VI's non-interlaced (NIN) bit for 960i. AVE-RVL is the one
-		that gives a picture on the Wii (the others give a black screen).
+		Swiss' "AVE Compatibility" setting, chosen in the menu. Every mode
+		except AVE-RVL also sets the VI's non-interlaced (NIN) bit for 960i.
+		AVE-RVL is the one that gives a picture on the Wii (the others gave
+		a black screen in testing). make SWISSVIDEO_AVE=... forces one.
 	*/
+#ifdef SWISSVIDEO_AVE_COMPAT
 	swissSettings.aveCompat = SWISSVIDEO_AVE_COMPAT;
+#else
+	{
+		static const u8 compatMap[NIN_960I_COMPAT_COUNT] = {
+			[NIN_960I_AVE_RVL]   = AVE_RVL_COMPAT,
+			[NIN_960I_GCVIDEO]   = GCVIDEO_COMPAT,
+			[NIN_960I_GCDIGITAL] = GCDIGITAL_COMPAT,
+			[NIN_960I_CMPV_DOL]  = CMPV_DOL_COMPAT,
+			[NIN_960I_AVE_N_DOL] = AVE_N_DOL_COMPAT,
+			[NIN_960I_AVE_P_DOL] = AVE_P_DOL_COMPAT,
+		};
+		swissSettings.aveCompat = compatMap[Nin960iCompat(ConfigGetConfigWord())];
+	}
+#endif
 	swissSettings.sramVideo = (BI2region == BI2_REGION_PAL) ? SYS_VIDEO_PAL : SYS_VIDEO_NTSC;
 
 	/* Swiss "Video Mode": 4 = 960i by default, see gameVModeStr in Swiss */

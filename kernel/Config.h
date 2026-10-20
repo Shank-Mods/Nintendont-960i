@@ -65,6 +65,11 @@ static inline bool ConfigGetConfig(u32 Config)
 	return !!(ncfg->Config&Config);
 }
 
+static inline u32 ConfigGetConfigWord(void)
+{
+	return ncfg->Config;
+}
+
 static inline u32 ConfigGetVideoMode(void)
 {
 	return ncfg->VideoMode;

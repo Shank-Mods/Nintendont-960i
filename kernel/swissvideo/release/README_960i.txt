@@ -39,19 +39,31 @@ Nintendont, and both share the same settings.
 Using it
 --------
 1. Start "Nintendont 960i (test build)".
-2. Open Settings. In the right column, set "960i Field Render" to On.
-   (It is grayed out if component cables / progressive scan aren't set up.)
+2. Open Settings. In the right column, set "960i Field Render" to
+   AVE-RVL. (It is grayed out if component cables / progressive scan
+   aren't set up.)
 3. Start a game.
 
-Turning "960i Field Render" On makes the build ignore Nintendont's own
+"960i Field Render" cycles through Off and Swiss's "AVE Compatibility"
+modes:
+  AVE-RVL    The Wii's own video encoder. Use this one.
+  GCVideo, GCDigital, CMPV-DOL, AVE N-DOL, AVE P-DOL
+             The modes Swiss uses on a GameCube with these video
+             encoders/mods. A Wii always has an AVE-RVL, so these are
+             only here for experimenting; in testing GCVideo and
+             CMPV-DOL gave a black screen. If you get a black screen,
+             power off the Wii and set it back to AVE-RVL or Off.
+
+Any setting other than Off makes the build ignore Nintendont's own
 video options (Force Progressive, Video Mode, Video Width, Screen
-Position). Turn it Off to use Nintendont normally.
+Position). Set it to Off to use Nintendont normally.
 
 Reporting results
 -----------------
 Please report:
 - Game name and region (NTSC / PAL)
 - Display / scaler model and how it is connected
+- The "960i Field Render" mode used (AVE-RVL, GCVideo, ...)
 - Result: stable picture / rolls vertically / no signal / other
 - The file nin960i.log from the root of your SD card or USB drive
   (written by this build every time a game starts in 960i mode)
