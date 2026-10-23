@@ -248,17 +248,7 @@ static int wait_gpu(struct hr_data *d, u32 tok, u32 where, u32 frame_start)
 			u32 mk = PER[7];
 			ST2->diag_mk = mk;
 			ST2->diag_nmk = d->nmk;
-			if ((mk & 0xF000) == HR_MARKER) {
-				/* find "61 47 00 Ax xx" in the frame */
-				volatile u8 *f = (volatile u8 *)(0xC0000000 | frame_start);
-				for (i = 0; i < 0x40000; i++) {
-					if (f[i] == 0x61 && f[i + 1] == 0x47 && f[i + 2] == 0 &&
-					    f[i + 3] == (mk >> 8) && f[i + 4] == (mk & 0xFF)) {
-						ST2->diag_mk_off = i;
-						break;
-					}
-				}
-			}
+			ST2->diag_mk_off = frame_start;	/* kernel works out the offsets */
 			for (i = 0; i < 7; i++)
 				ST2->fs[i] = *(volatile u32 *)(0xC0000000 | (frame_start + i * 4));
 		}
@@ -302,6 +292,7 @@ static void marker(struct hr_data *d)
 	if (d->mode != HR_MODE_TWOPASS || !d->frame_start || d->nmk >= 0xFFF)
 		return;
 	n = d->nmk++;
+	((volatile u32 *)HR_MKPOS_PPC)[n & 15] = fifo_wp();
 	bp_write(0x47000000 | HR_MARKER | n);
 }
 
@@ -520,11 +511,13 @@ void hr_copydisp(void *dest, u32 clear)
 
 	/* Patch the frame for the right half */
 	patched = 0;
-	for (i = 0; i < nfound; i++) {
-		set_scissor_tile1(&r, found[i]);
-		patched++;
+	if (!(d->test & HR_TEST_SAME)) {
+		for (i = 0; i < nfound; i++) {
+			set_scissor_tile1(&r, found[i]);
+			patched++;
+		}
+		bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
 	}
-	bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
 	ST->last_patched = patched;
 	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
 	ppc_sync();

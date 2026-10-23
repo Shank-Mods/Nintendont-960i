@@ -34,6 +34,11 @@
 # at all, whatever the game draws.
 # Enable ONE of R1-R3 at a time.
 #
+# --- T1: Two-pass test - replay each frame UNCHANGED (no right half)
+# Hangs too -> replaying the frame itself is the problem.
+# Works (left half picture, game runs) -> the right half changes are.
+#hrtest=1
+#
 # --- R1: picture window narrowed to 720 clocks (normal 480p width)
 # Picture (or bars) on the left part of the screen -> the encoder
 # blanks windows wider than 720 clocks.

@@ -757,6 +757,7 @@ static void swv_log_timing(const char *what, const u8 *t)
 /* Settings read from /nin960i_vi.txt (-1 = not set) */
 static s32 swv_ovr_vmode, swv_ovr_vjitter, swv_ovr_vfilter, swv_ovr_avecompat;
 static s32 swv_ovr_swiss;	/* 0 = don't apply the Swiss patches (baseline) */
+static s32 swv_ovr_hrtest = -1;	/* 1280x240p test flags (HR_TEST_*) */
 static s32 swv_ovr_timing[countof(swv_timing_fields)];
 static s32 swv_ovr_hr_timing[countof(swv_timing_fields)];	/* hr_<field>: 1280x240p */
 
@@ -766,6 +767,7 @@ static void swv_apply_setting(const char *name, u32 n)
 
 	if (strcmp(name, "gamevmode") == 0)        swv_ovr_vmode = n;
 	else if (strcmp(name, "swiss") == 0)        swv_ovr_swiss = n;
+	else if (strcmp(name, "hrtest") == 0)       swv_ovr_hrtest = n;
 	else if (strcmp(name, "forcevjitter") == 0) swv_ovr_vjitter = n;
 	else if (strcmp(name, "forcevfilter") == 0) swv_ovr_vfilter = n;
 	else if (strcmp(name, "avecompat") == 0)    swv_ovr_avecompat = n;
@@ -1232,6 +1234,9 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 	memset(hr_data_init, 0, sizeof(hr_data_init));
 	hd = (struct hr_data *)hr_data_init;
 	hd->mode = swissSettings.hiRes240p;
+	hd->test = swv_ovr_hrtest > 0 ? swv_ovr_hrtest : 0;
+	if (hd->test)
+		swv_log("SwissVideo:hires: test flags %u\r\n", hd->test);
 	hd->gxdata_fn[0] = 0x80600000 | gxbits;	/* lwz r3, d(rA) */
 	hd->gxdata_fn[1] = 0x4E800020;		/* blr */
 	hd->cur_l = 0; hd->cur_t = 0; hd->cur_w = 640; hd->cur_h = 480; hd->cur_main = 1;
@@ -1270,9 +1275,9 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 		write32(HR_STATS_ARM + i, 0);
 	write32(HR_STATS_ARM, HR_STATS_MAGIC);
 	sync_after_write((void *)HR_STATS_ARM, sizeof(struct hr_stats));
-	for (i = 0; i < 0xC0; i += 4)
-		write32(HR_DUMP_ARM + i, 0);	/* dump and stats2 */
-	sync_after_write((void *)HR_DUMP_ARM, 0xC0);
+	for (i = 0; i < 0x100; i += 4)
+		write32(HR_DUMP_ARM + i, 0);	/* dump, stats2, marker positions */
+	sync_after_write((void *)HR_DUMP_ARM, 0x100);
 #endif
 	swv_log("SwissVideo:hires: payload @ %08X (%u bytes), data @ %08X, __GXData lwz %08X\r\n",
 		payload, hires_payload_size, block, hd->gxdata_fn[0]);
@@ -1383,10 +1388,19 @@ static void SwissVideoLogHiRes(void)
 		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
 			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
 		swv_log("SwissVideo:hires: GPU resets after a hung replay %u\r\n", s2->recovered);
-		if (s->diag_where == 2)
-			swv_log("SwissVideo:hires: hung frame: last marker passed %04X at frame +%u (%u markers) | start %08X %08X %08X %08X %08X %08X %08X\r\n",
-				s2->diag_mk, s2->diag_mk_off, s2->diag_nmk, s2->fs[0], s2->fs[1], s2->fs[2],
-				s2->fs[3], s2->fs[4], s2->fs[5], s2->fs[6]);
+		if (s->diag_where == 2) {
+			const u32 *mp = (const u32 *)HR_MKPOS_ARM;
+			u32 fs = s2->diag_mk_off, n = s2->diag_mk & 0xFFF, j;
+			sync_before_read((void *)HR_MKPOS_ARM, 0x40);
+			swv_log("SwissVideo:hires: hung frame @ %08X: last marker passed %04X of %u | start %08X %08X %08X %08X\r\n",
+				fs, s2->diag_mk, s2->diag_nmk, s2->fs[0], s2->fs[1], s2->fs[2], s2->fs[3]);
+			if ((s2->diag_mk & 0xF000) == HR_MARKER && s2->diag_nmk && n < s2->diag_nmk) {
+				for (j = (n >= 3 ? n - 3 : 0); j < s2->diag_nmk && j <= n + 3; j++)
+					if (j + 16 >= s2->diag_nmk)
+						swv_log("SwissVideo:hires:   marker %u at frame +%d%s\r\n", j,
+							(s32)(mp[j & 15] - fs), j == n ? " <- last passed" : "");
+			}
+		}
 	}
 	if (s->diag_where) {
 		const u32 *dmp = (const u32 *)HR_DUMP_ARM;

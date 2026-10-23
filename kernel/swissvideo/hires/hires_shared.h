@@ -57,7 +57,14 @@ struct hr_data {
 	unsigned int nop_dl[16];	/* 32 aligned bytes of NOPs inside */
 	unsigned int nmk;		/* markers (PE tokens 0xA000 + n) in this frame */
 	unsigned int fails;		/* replays that hung the GPU */
+	unsigned int test;		/* HR_TEST_* (experiments: hrtest= in nin960i_vi.txt) */
 };
+
+#define HR_TEST_SAME	1	/* replay the frame unchanged (no right half patching) */
+
+/* FIFO write pointer at the last 16 markers (marker n at [n & 15]) */
+#define HR_MKPOS_PPC		0xD30033C0
+#define HR_MKPOS_ARM		0x130033C0
 
 #define HR_MARKER	0xA000
 #define HR_MAX_FAILS	4	/* then "Left half" for the rest of the session */
