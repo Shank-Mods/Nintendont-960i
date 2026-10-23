@@ -67,7 +67,8 @@ struct hr_stats {
 	unsigned int vp_h;
 	unsigned int last_patched;	/* scissors patched for the second pass */
 	unsigned int last_disp_size;	/* __GXData copy size register seen */
-	unsigned int reserved[8];
+	unsigned int pe_nopped;	/* draw done / token interrupts removed from replays */
+	unsigned int reserved[7];
 };
 
 #endif

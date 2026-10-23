@@ -1303,6 +1303,7 @@ static void SwissVideoLogHiRes(void)
 		s->sc_calls, s->sc_main, s->last_sc_lt >> 16, s->last_sc_lt & 0xFFFF,
 		s->last_sc_wh >> 16, s->last_sc_wh & 0xFFFF, s->vp_w, s->vp_h,
 		s->gxdata_ok, s->gxdata_bad, s->last_disp_size);
+	swv_log("SwissVideo:hires: draw done/token interrupts removed from replays %u\r\n", s->pe_nopped);
 }
 
 static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;
@@ -1344,8 +1345,20 @@ void SwissVideoLogVI(void)
 	sync_before_read((void *)VI_SNAPSHOT, 0x80);
 	for (i = 0; i < 0x80; i += 4)
 		nonzero |= read32(VI_SNAPSHOT + i);
-	if (!nonzero)
-		return;	/* game not running yet */
+	if (!nonzero) {
+		/* no PADRead yet; the 1280x240p counters can still tell how far it got */
+		const struct hr_stats *s = (const struct hr_stats *)HR_STATS_ARM;
+		if (!swissSettings.hiRes240p)
+			return;
+		sync_before_read((void *)HR_STATS_ARM, sizeof(struct hr_stats));
+		if (s->magic != HR_STATS_MAGIC || s->copies == 0)
+			return;	/* game not running yet */
+		viLogCount++;
+		swv_log("SwissVideo:no VI snapshot yet (#%u)\r\n", viLogCount);
+		SwissVideoLogHiRes();
+		viLogPending = 1;
+		return;
+	}
 
 	viLogCount++;
 	swv_log("SwissVideo:VI regs #%u\r\n", viLogCount);

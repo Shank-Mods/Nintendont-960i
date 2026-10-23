@@ -155,6 +155,38 @@ static u32 find_scissor(const struct ring *r, u32 p, u32 window)
 	return NOTFOUND;
 }
 
+/*
+	The replayed range starts right after the previous frame's copy, so it
+	holds the game's GXSetDrawDone (BP 0x45) and GXSetDrawSync (BP 0x48)
+	for that frame. Run twice, they raise a second "draw done" / token
+	interrupt, and the game's callbacks (framebuffer queues) see a frame
+	finish twice. Pass 1 has already run them, so they are replaced by
+	NOPs (opcode 00) for the replay. Only the start of the frame is searched.
+*/
+#define PE_SCAN_WINDOW	16384
+
+static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len)
+{
+	u32 i, j, q, n = 0;
+	u8 reg;
+
+	if (len > PE_SCAN_WINDOW)
+		len = PE_SCAN_WINDOW;
+	for (i = 0; i + 5 <= len; i++) {
+		q = ring_add(r, p, i);
+		if (ring_rd(r, q, 0) != 0x61)
+			continue;
+		reg = ring_rd(r, q, 1);
+		if (reg != 0x45 && reg != 0x48)
+			continue;
+		for (j = 0; j < 5; j++)
+			ring_wr(r, q, j, 0);
+		n++;
+		i += 4;
+	}
+	return n;
+}
+
 static void set_scissor_tile1(const struct ring *r, u32 q)
 {
 	bp_set(r, q, BP_SCIS0_T1);
@@ -330,6 +362,7 @@ void hr_copydisp(void *dest, u32 clear)
 	}
 	bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
 	ST->last_patched = patched;
+	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
 	ppc_sync();
 
 	/* Pass 2: rewind the GPU to the start of the frame */

@@ -127,6 +127,16 @@ the build links it at two addresses and fails unless the blobs match):
   the start of the frame and lets the GPU run it again. A NOP run marks
   each frame start in the FIFO.
 
+The replay starts right after the previous frame's copy, so it contains
+that frame's `GXSetDrawDone` / `GXSetDrawSync`; those BP writes (0x45,
+0x48) in the first 16 KB of the frame are replaced by NOPs before the
+replay so the game's draw done callbacks don't fire twice.
+
+Hardware results (Kirby Air Ride, NTSC): "Left half" shows the left half
+picture over a Wii Dual (GCVideo based digital output). Over component
+(AVE-RVL) the screen stays black with a 240p lock, even with the encoder's
+color bars, so the AVE-RVL blanks this mode.
+
 "Left half" skips the second pass (right half shows the clear colour), to
 test the signal and GX setup separately. `nin960i.log` gets counters
 (replays, skipped frames and why, FIFO size, largest frame, scissor and
