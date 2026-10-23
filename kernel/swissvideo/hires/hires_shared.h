@@ -68,7 +68,13 @@ struct hr_stats {
 	unsigned int last_patched;	/* scissors patched for the second pass */
 	unsigned int last_disp_size;	/* __GXData copy size register seen */
 	unsigned int pe_nopped;	/* draw done / token interrupts removed from replays */
-	unsigned int reserved[7];
+	unsigned int vtx_ok;		/* frame prologues with the vertex formats re-sent */
+	unsigned int vtx_bad;		/* __GXData vertex formats not where expected */
+	unsigned int diag_where;	/* last timeout: 1 first pass, 2 second pass */
+	unsigned int diag_sr;		/* CP status << 16 | CP control */
+	unsigned int diag_cnt;		/* CP read/write distance */
+	unsigned int diag_rp;		/* CP read pointer - frame start */
+	unsigned int diag_tok;		/* PE token seen << 16 | token waited for */
 };
 
 #endif

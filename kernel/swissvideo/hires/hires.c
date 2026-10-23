@@ -24,6 +24,7 @@ typedef unsigned char u8;
 #define ST	((volatile struct hr_stats *)HR_STATS_PPC)
 
 #define CPR	((volatile u16 *)0xCC000000)	/* command processor */
+#define PER	((volatile u16 *)0xCC001000)	/* pixel engine (7 = token) */
 #define PIR	((volatile u32 *)0xCC003000)	/* processor interface */
 #define WGP8	(*(volatile u8 *)0xCC008000)	/* write gather pipe */
 #define WGP32	(*(volatile u32 *)0xCC008000)
@@ -44,7 +45,8 @@ typedef unsigned char u8;
 #define BP_SCIS1_T1	0x21655245	/* bottom 581, right 1621 */
 #define BP_SCOFF_T1	0x5902ADEB	/* (640+342)/2, (0+342)/2 */
 
-#define WAIT_LOOPS	4000000
+/* Timeouts in time base ticks (40.5 MHz in GameCube mode): 0.5 s */
+#define WAIT_TICKS	20250000
 
 typedef void (*scissor_fn)(u32, u32, u32, u32);
 typedef void (*copydisp_fn)(void *, u32);
@@ -59,6 +61,20 @@ static inline void bp_write(u32 v)
 {
 	WGP8 = 0x61;
 	WGP32 = v;
+}
+
+static inline void cp_write(u8 reg, u32 v)
+{
+	WGP8 = 0x08;
+	WGP8 = reg;
+	WGP32 = v;
+}
+
+static inline u32 mftb(void)
+{
+	u32 t;
+	__asm__ volatile ("mftb %0" : "=r" (t));
+	return t;
 }
 
 static inline void fifo_nops(u32 words)
@@ -194,15 +210,67 @@ static void set_scissor_tile1(const struct ring *r, u32 q)
 	bp_set(r, ring_add(r, q, 10), BP_SCOFF_T1);
 }
 
-/* Wait until the GPU has read everything in the FIFO. */
-static int wait_cp_idle(void)
+/*
+	Wait until the GPU has processed everything sent so far: a PE token
+	(BP 0x47, no interrupt) is sent and its value polled in the PE token
+	register, like GXSetDrawSync / GXReadDrawSync. The CP idle bits alone
+	turned out not to be reliable.
+*/
+static int wait_gpu(u32 tok, u32 where, u32 frame_start)
 {
-	u32 n;
-	for (n = 0; n < WAIT_LOOPS; n++) {
-		if (cp_get32(24) == 0 && (CPR[0] & 0x0C) == 0x0C)
+	u32 t0;
+
+	bp_write(0x47000000 | tok);
+	fifo_nops(8);			/* push it out of the gather pipe */
+	ppc_sync();
+	t0 = mftb();
+	while (mftb() - t0 < WAIT_TICKS) {
+		if (PER[7] == tok)
 			return 1;
 	}
+	ST->diag_where = where;
+	ST->diag_sr = ((u32)CPR[0] << 16) | CPR[1];
+	ST->diag_cnt = cp_get32(24);
+	ST->diag_rp = (cp_get32(28) & 0x3FFFFFFF) - frame_start;
+	ST->diag_tok = ((u32)PER[7] << 16) | tok;
 	return 0;
+}
+
+/*
+	How the CP parses vertex data depends on the vertex descriptor and
+	attribute formats (CP 0x50/0x60, 0x70-0x9F). GX only sends them when
+	they change, so a replayed frame would start with the formats left by
+	the end of the first pass and misread its first draws. The frame
+	prologue sends the formats from GX's shadow copy in __GXData
+	(vcdLo/Hi +0x14/+0x18, vatA/B/C +0x1C/+0x3C/+0x5C), which equal the
+	GPU's at that point. Checked with the bits GXInit always sets (ByteDequant
+	in vatA, VCacheEnhance in vatB).
+*/
+static void send_vertex_formats(struct hr_data *d)
+{
+	u32 g = (u32)((gxdata_fn)d->gxdata_fn)();
+	volatile u32 *x;
+	u32 i;
+
+	if (g < 0x80000000 || g >= 0x81800000 - 0x400 || (g & 3)) {
+		ST->vtx_bad++;
+		return;
+	}
+	x = (volatile u32 *)g;
+	for (i = 0; i < 8; i++) {
+		if (!(x[7 + i] & 0x40000000) || !(x[15 + i] & 0x80000000)) {
+			ST->vtx_bad++;
+			return;
+		}
+	}
+	cp_write(0x50, x[5]);
+	cp_write(0x60, x[6]);
+	for (i = 0; i < 8; i++) {
+		cp_write(0x70 + i, x[7 + i]);
+		cp_write(0x80 + i, x[15 + i]);
+		cp_write(0x90 + i, x[23 + i]);
+	}
+	ST->vtx_ok++;
 }
 
 /*
@@ -247,6 +315,7 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	d->nsc = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
+	send_vertex_formats(d);
 	if (d->cur_main)
 		orig(0, 0, 640, 240);
 	else
@@ -287,10 +356,11 @@ void hr_copydisp(void *dest, u32 clear)
 	copydisp_fn orig = (copydisp_fn)d->tramp_cd;
 	struct ring r;
 	u32 dst = (u32)dest & 0x3FFFFFFF;
-	u32 posL, end, dist, at, i, patched, en;
+	u32 posL, end, dist, at, i, patched, en, tok, wp;
 	u32 found[HR_MAX_SCISSOR + 1];
 	u32 nfound = 0;
 
+	tok = 0xFFFFFFFF;		/* game token not changed yet */
 	r.base = cp_get32(16) & 0x3FFFFFFF;
 	r.size = (cp_get32(18) & 0x3FFFFFFF) + 4 - r.base;
 	ST->magic = HR_STATS_MAGIC;
@@ -310,12 +380,12 @@ void hr_copydisp(void *dest, u32 clear)
 		goto right_blank;
 	}
 
-	fifo_nops(8);			/* push the copy out of the gather pipe */
-	end = fifo_wp();
-	if (!wait_cp_idle()) {
+	tok = PER[7];			/* the game's token, put back at the end */
+	if (!wait_gpu((tok + 1) & 0xFFFF, 1, d->frame_start)) {
 		ST->skip_timeout1++;
 		goto right_blank;
 	}
+	end = fifo_wp();
 
 	dist = ring_dist(&r, d->frame_start, end);
 	ST->last_frame = dist;
@@ -328,13 +398,13 @@ void hr_copydisp(void *dest, u32 clear)
 
 	/* The frame start must still hold our prologue (FIFO not wrapped over it) */
 	if (d->prologue_main) {
-		at = find_scissor(&r, d->prologue_pos, 64);
+		at = find_scissor(&r, d->prologue_pos, 256);
 		if (at == NOTFOUND) {
 			ST->skip_overwritten++;
 			goto right_blank;
 		}
 		found[nfound++] = at;
-	} else if (find_bp(&r, d->prologue_pos, 96, BP_SCOFF_T0) == NOTFOUND) {
+	} else if (find_bp(&r, d->prologue_pos, 288, BP_SCOFF_T0) == NOTFOUND) {
 		ST->skip_overwritten++;
 		goto right_blank;
 	}
@@ -369,21 +439,25 @@ void hr_copydisp(void *dest, u32 clear)
 	en = CPR[1];
 	CPR[1] = en & ~0x0D;		/* stop reading, no watermark interrupts */
 	ppc_sync();
+	wp = cp_get32(26) & 0x3FFFFFFF;	/* everything the CP has been given */
 	cp_set32(28, d->frame_start);	/* read pointer */
-	cp_set32(24, dist);		/* read/write distance */
+	cp_set32(24, ring_dist(&r, d->frame_start, wp));	/* read/write distance */
 	ppc_sync();
 	CPR[1] = (en & ~0x0C) | 1;	/* read again */
-	if (wait_cp_idle())
+	if (wait_gpu((tok + 2) & 0xFFFF, 2, d->frame_start))
 		ST->replays++;
 	else
 		ST->timeout2++;
 	CPR[2] = 3;			/* clear watermark status */
 	CPR[1] = en;
+	bp_write(0x47000000 | tok);	/* the game's token value again */
 	frame_prologue(d, &r);
 	return;
 
 right_blank:
 	/* Right half from the cleared EFB, so it isn't left stale */
 	orig((u8 *)dest + 1280, clear);
+	if (d->mode == HR_MODE_TWOPASS && d->frame_start && tok != 0xFFFFFFFF)
+		bp_write(0x47000000 | tok);
 	frame_prologue(d, &r);
 }

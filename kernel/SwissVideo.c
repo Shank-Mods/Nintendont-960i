@@ -1303,7 +1303,11 @@ static void SwissVideoLogHiRes(void)
 		s->sc_calls, s->sc_main, s->last_sc_lt >> 16, s->last_sc_lt & 0xFFFF,
 		s->last_sc_wh >> 16, s->last_sc_wh & 0xFFFF, s->vp_w, s->vp_h,
 		s->gxdata_ok, s->gxdata_bad, s->last_disp_size);
-	swv_log("SwissVideo:hires: draw done/token interrupts removed from replays %u\r\n", s->pe_nopped);
+	swv_log("SwissVideo:hires: draw done/token interrupts removed from replays %u | vertex formats re-sent %u bad %u\r\n",
+		s->pe_nopped, s->vtx_ok, s->vtx_bad);
+	if (s->diag_where)
+		swv_log("SwissVideo:hires: last timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X\r\n",
+			s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok);
 }
 
 static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;
