@@ -56,3 +56,66 @@ hr_viewport_hook:
 	addi	%r12, %r12, 4			/* hr_data.tramp_vp */
 	mtctr	%r12
 	bctr
+
+/*
+	gcc -Os epilogue helper (libgcc crtsavres, 32 bit SVR4): r11 = caller's
+	stack pointer; restores r14..r31 from the save area below it, returns.
+*/
+	.globl _restgpr_14_x
+	.globl _restgpr_15_x
+	.globl _restgpr_16_x
+	.globl _restgpr_17_x
+	.globl _restgpr_18_x
+	.globl _restgpr_19_x
+	.globl _restgpr_20_x
+	.globl _restgpr_21_x
+	.globl _restgpr_22_x
+	.globl _restgpr_23_x
+	.globl _restgpr_24_x
+	.globl _restgpr_25_x
+	.globl _restgpr_26_x
+	.globl _restgpr_27_x
+	.globl _restgpr_28_x
+	.globl _restgpr_29_x
+	.globl _restgpr_30_x
+	.globl _restgpr_31_x
+_restgpr_14_x:
+	lwz		14, -72(11)
+_restgpr_15_x:
+	lwz		15, -68(11)
+_restgpr_16_x:
+	lwz		16, -64(11)
+_restgpr_17_x:
+	lwz		17, -60(11)
+_restgpr_18_x:
+	lwz		18, -56(11)
+_restgpr_19_x:
+	lwz		19, -52(11)
+_restgpr_20_x:
+	lwz		20, -48(11)
+_restgpr_21_x:
+	lwz		21, -44(11)
+_restgpr_22_x:
+	lwz		22, -40(11)
+_restgpr_23_x:
+	lwz		23, -36(11)
+_restgpr_24_x:
+	lwz		24, -32(11)
+_restgpr_25_x:
+	lwz		25, -28(11)
+_restgpr_26_x:
+	lwz		26, -24(11)
+_restgpr_27_x:
+	lwz		27, -20(11)
+_restgpr_28_x:
+	lwz		28, -16(11)
+_restgpr_29_x:
+	lwz		29, -12(11)
+_restgpr_30_x:
+	lwz		30, -8(11)
+_restgpr_31_x:
+	lwz		0, 4(11)
+	lwz		31, -4(11)
+	mtlr	0
+	mr		1, 11
+	blr

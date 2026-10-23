@@ -3771,6 +3771,8 @@ void DoPatches( char *Buffer, u32 Length, u32 DiscOffset )
 			PatchWideMulti(MTXLightPerspectiveOffset + 0x24, 27);
 		}
 	}
+	if (SwissVideoEnabled())
+		SwissVideoLogPatchArea(POffset);
 	if(cheatsWanted || debuggerWanted)
 	{
 		//setup jump to codehandler stub

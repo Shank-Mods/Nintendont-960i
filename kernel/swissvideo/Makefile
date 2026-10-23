@@ -24,7 +24,7 @@ all: $(HFILES) hires/hires_payload.h
 
 # 1280x240p two-pass payload (position independent PowerPC code, no data).
 # Linked at two addresses: the blobs must be identical.
-HR_CFLAGS := -O2 -mcpu=750 -meabi -mhard-float -mno-sdata -fno-pic -fno-PIC \
+HR_CFLAGS := -Os -mcpu=750 -meabi -mhard-float -mno-sdata -fno-pic -fno-PIC \
 	-ffreestanding -fno-builtin -fno-jump-tables -fno-common \
 	-fno-asynchronous-unwind-tables -nostdlib -Wall -Ihires
 

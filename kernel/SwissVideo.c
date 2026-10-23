@@ -1466,6 +1466,15 @@ static void SwissVideoClearSnapshot(void)
 static void SwissVideoClearSnapshot(void) {}
 #endif
 
+void SwissVideoLogPatchArea(u32 lowest)
+{
+	swv_log("SwissVideo:patch area used down to %08X%s\r\n", 0x80000000 | lowest,
+		lowest < 0x1800 ? " - WARNING: below 80001800, the game's exception handlers overwrite it" : "");
+#ifndef SWISSVIDEO_HOST_TEST
+	viLogPending = 1;
+#endif
+}
+
 void SwissVideoFlushVars(void)
 {
 	sync_after_write((void *)(MEM1_BASE + VAR_BLOCK_START), VAR_BLOCK_END - VAR_BLOCK_START);

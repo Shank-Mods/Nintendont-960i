@@ -37,6 +37,9 @@ void SwissVideoPatch(char *Buffer, u32 Length);
 /* Logs the VI registers captured by PADRead (diagnostics), call regularly. */
 void SwissVideoLogVI(void);
 
+/* Logs how far down the patch area was used (0x80001800 is the floor). */
+void SwissVideoLogPatchArea(u32 lowest);
+
 /* Flushes the low memory variables the patches use; call before booting. */
 void SwissVideoFlushVars(void);
 
