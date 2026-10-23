@@ -43,6 +43,7 @@
 #define HR_MODE_TWOPASS		2	/* render the frame twice */
 
 #define HR_MAX_SCISSOR		32
+#define HR_FIFO_PAD		0x20000	/* room a frame needs before the FIFO end */
 
 #ifndef _LANGUAGE_ASSEMBLY
 
@@ -104,7 +105,8 @@ struct hr_stats2 {
 	unsigned int diag_nmk;		/* first timeout: markers in that frame */
 	unsigned int recovered;		/* GPU resets after a hung replay */
 	unsigned int vp_shifted;	/* viewports moved for second passes */
-	unsigned int reserved[5];
+	unsigned int unused_pad;	/* FIFO ends filled with NOPs (frames kept in one piece) */
+	unsigned int reserved[4];
 	unsigned int hung_frames;	/* replays that hung: frame number bits (copies & 31) */
 };
 

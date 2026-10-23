@@ -401,6 +401,16 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	scissor_fn orig = (scissor_fn)d->tramp_sc;
 	u32 p;
 
+	/*
+		A frame that runs over the end of the FIFO can't be replayed as one
+		display list, so when less than HR_FIFO_PAD is left the rest is
+		filled with NOPs and the frame starts at the beginning again.
+	*/
+	p = fifo_wp();
+	if (r->base + r->size - p < HR_FIFO_PAD) {
+		fifo_nops((r->base + r->size - p) / 4);
+		ST2->unused_pad++;
+	}
 	fifo_nops(16);			/* 64 bytes: the last 32 before p are NOPs */
 	p = fifo_wp();
 	d->frame_start = (p - 32 >= r->base) ? p - 32 : p - 32 + r->size;
@@ -454,7 +464,8 @@ void hr_copydisp(void *dest, u32 clear)
 
 	tok = 0xFFFFFFFF;		/* game token not changed yet */
 	r.base = cp_get32(16) & 0x3FFFFFFF;
-	r.size = (cp_get32(18) & 0x3FFFFFFF) + 4 - r.base;
+	/* the CP wraps after the 32 byte line holding the top register */
+	r.size = ((cp_get32(18) & 0x3FFFFFE0) + 32) - r.base;
 	ST->magic = HR_STATS_MAGIC;
 	ST->copies++;
 	ST2->main_thread = *(volatile u32 *)0x800000E4;
@@ -605,7 +616,11 @@ void hr_calldl(const void *list, u32 nbytes)
 	}
 	nop = (((u32)d->nop_dl + 31) & ~31) & 0x3FFFFFFF;
 	orig((const void *)(0x80000000 | nop), 32);
-	src = (volatile u32 *)(0xC0000000 | p);
+	/*
+		Read as the CPU sees it (cached): a game may flush its list to
+		memory only after calling it, since the GPU reads it later.
+	*/
+	src = (volatile u32 *)(0x80000000 | p);
 	for (i = 0; i < nbytes / 4; i++)
 		WGP32 = src[i];
 	ST2->dl_inlined++;

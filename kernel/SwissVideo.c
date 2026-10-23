@@ -1413,8 +1413,8 @@ static void SwissVideoLogHiRes(void)
 			s->pe_nopped, s2->vp_shifted);
 		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
 			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
-		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X) | CP distance fixed %u\r\n",
-			s2->recovered, s2->hung_frames, s2->dist_fixed);
+		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X) | CP distance fixed %u | FIFO end padded %u\r\n",
+			s2->recovered, s2->hung_frames, s2->dist_fixed, s2->unused_pad);
 		if (s->diag_where)
 			swv_log("SwissVideo:hires: first timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X, %u markers\r\n",
 				s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok, s2->diag_nmk);
