@@ -119,20 +119,20 @@ u32 PADRead(u32 calledByGame)
 		if(((SWISS_BOOT*)SWISS_BOOT_ADDR_PPC)->hiRes240p)
 		{
 			vu32 *g = (vu32*)0xD3003300;
+			vu16 *cp = (vu16*)0xCC000000;
 			u32 th = *(vu32*)0xD3003394;	/* hr_stats2.main_thread */
-			u32 k, sp;
 			g[0] = *(vu32*)0x800000E4;
 			g[1] = th;
-			/* OSContext: gpr[1] at +4, srr0 +0x198; then the stack's saved LRs */
+			g[6] = ((u32)cp[0] << 16) | cp[1];	/* CP status, control */
+			g[7] = ((u32)cp[25] << 16) | cp[24];	/* CP read/write distance */
+			g[8] = ((u32)cp[29] << 16) | cp[28];	/* CP read pointer */
+			g[9] = ((u32)cp[27] << 16) | cp[26];	/* CP write pointer */
+			/* OSThread: context lr +0x84, srr0 +0x198, state +0x2C8, suspend +0x2CC */
 			if((th >> 24) == 0x80 && th != g[0])
 			{
 				g[2] = *(vu32*)(th + 0x198);
-				sp = *(vu32*)(th + 4);
-				for(k = 3; k < 9 && (sp >> 24) == 0x80; ++k)
-				{
-					sp = *(vu32*)sp;
-					g[k] = *(vu32*)(sp + 4);
-				}
+				g[10] = ((u32)*(vu16*)(th + 0x2C8) << 16) | (*(vu32*)(th + 0x2CC) & 0xFFFF);
+				g[3] = *(vu32*)(th + 0x84);	/* saved lr */
 			}
 		}
 	}

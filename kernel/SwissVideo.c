@@ -1399,8 +1399,10 @@ static void SwissVideoLogHiRes(void)
 	{
 		const u32 *g = (const u32 *)HR_GAMESNAP_ARM;
 		sync_before_read((void *)HR_GAMESNAP_ARM, 0x40);
-		swv_log("SwissVideo:hires: PADRead thread %08X | drawing thread %08X at %08X, called from %08X %08X %08X %08X %08X %08X\r\n",
-			g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7], g[8]);
+		swv_log("SwissVideo:hires: PADRead thread %08X | drawing thread %08X state/suspend %08X at %08X lr %08X\r\n",
+			g[0], g[1], g[10], g[2], g[3]);
+		swv_log("SwissVideo:hires: CP status/control %08X distance %u rp %08X wp %08X\r\n",
+			g[6], g[7], g[8], g[9]);
 	}
 }
 

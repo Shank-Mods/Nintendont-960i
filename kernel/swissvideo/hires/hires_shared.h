@@ -17,8 +17,10 @@
 /*
 	Game state snapshot taken by PADRead (loader/source/ppc/PADReadGC) for
 	the log: [0] current thread, [1] thread that draws (main_thread),
-	[2] its saved srr0, [3..8] return addresses on its stack (when it
-	isn't the one running PADRead).
+	[2] its saved srr0, [3] its saved lr (when it isn't the one running
+	PADRead), [6] CP status << 16 | control,
+	[7] CP distance, [8] CP read pointer, [9] CP write pointer,
+	[10] that thread's state << 16 | suspend count.
 */
 #define HR_GAMESNAP_PPC		0xD3003300
 #define HR_GAMESNAP_ARM		0x13003300
