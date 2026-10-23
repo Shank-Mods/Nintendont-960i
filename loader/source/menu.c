@@ -1722,6 +1722,7 @@ enum SwissItem
 	SWV_VOFFSET,
 	SWV_VFILTER,
 	SWV_VJITTER,
+	SWV_INVERTFIELD,
 	SWV_PIXELCENTER,
 	SWV_DITHERING,
 	SWV_ANISO,
@@ -1733,8 +1734,8 @@ enum SwissItem
 static const u8 SwissItemRow[SWV_COUNT] = {
 	0,		// master switch
 	2, 3, 4, 5,	// video encoder
-	7, 8, 9, 10, 11, 12,	// video mode
-	14, 15, 16, 17	// rendering
+	7, 8, 9, 10, 11, 12, 13,	// video mode
+	15, 16, 17, 18	// rendering
 };
 
 static const char *const SwissItemLabel[SWV_COUNT] = {
@@ -1749,6 +1750,7 @@ static const char *const SwissItemLabel[SWV_COUNT] = {
 	"Vertical Offset",
 	"Vertical Filter",
 	"Field Rendering",
+	"Invert Field Order",
 	"Fix Pixel Center",
 	"Disable Dithering",
 	"Anisotropic Filter",
@@ -1782,6 +1784,9 @@ static bool SwissItemActive(int item)
 {
 	if (!SwissItemChangeable(item))
 		return false;
+	// Only matters while Swiss' field rendering can be on.
+	if (item == SWV_INVERTFIELD && swcfg->ForceVJitter == 2)
+		return false;
 	return (item == SWV_ENABLED) || swcfg->Enabled;
 }
 
@@ -1802,6 +1807,7 @@ static const char *SwissItemValue(int item, char *buf, size_t size)
 			return buf;
 		case SWV_VFILTER:	return SwissVFilterStr[swcfg->ForceVFilter];
 		case SWV_VJITTER:	return SwissVJitterStr[swcfg->ForceVJitter];
+		case SWV_INVERTFIELD:	return swcfg->InvertFieldOrder ? "Yes" : "No";
 		case SWV_PIXELCENTER:	return SwissPixelCenterStr[swcfg->FixPixelCenter];
 		case SWV_DITHERING:	return swcfg->DisableDithering ? "Yes" : "No";
 		case SWV_ANISO:		return swcfg->ForceAnisotropy ? "Yes" : "No";
@@ -1847,6 +1853,7 @@ static void SwissItemChange(int item, int dir)
 			break;
 		case SWV_VFILTER:	SwissCycle(&swcfg->ForceVFilter, 4, dir); break;
 		case SWV_VJITTER:	SwissCycle(&swcfg->ForceVJitter, 4, dir); break;
+		case SWV_INVERTFIELD:	swcfg->InvertFieldOrder ^= 1; break;
 		case SWV_PIXELCENTER:	SwissCycle(&swcfg->FixPixelCenter, 3, dir); break;
 		case SWV_DITHERING:	swcfg->DisableDithering ^= 1; break;
 		case SWV_ANISO:		swcfg->ForceAnisotropy ^= 1; break;
@@ -2003,6 +2010,25 @@ static const char *const *SwissItemDescription(int item)
 		"TAA: temporal anti-aliasing",
 		NULL
 	};
+	static const char *const desc_invertfield[] = {
+		"Swaps which field each frame",
+		"is rendered for. Try this if",
+		"a game looks like its fields",
+		"are swapped with field render-",
+		"ing on (combing or shimmering",
+		"on edges), e.g. because it",
+		"shows frames a field later",
+		"than usual.",
+		"",
+		"Only for Swiss' own field",
+		"rendering (On, TAA, or Auto in",
+		"960i / 1152i / 1080i). Games",
+		"that field-render by themselves",
+		"keep their own field order.",
+		"Can't help games running at",
+		"30 fps. Not in Swiss.",
+		NULL
+	};
 	static const char *const desc_pixelcenter[] = {
 		"Corrects the half pixel offset",
 		"of games that render slightly",
@@ -2044,7 +2070,7 @@ static const char *const *SwissItemDescription(int item)
 	static const char *const *const descs[SWV_COUNT] = {
 		desc_enabled, desc_avecompat, desc_dtvstatus, desc_rt4k,
 		desc_videoactive, desc_vmode_ntsc, desc_vmode_pal, desc_hscale,
-		desc_voffset, desc_vfilter, desc_vjitter, desc_pixelcenter,
+		desc_voffset, desc_vfilter, desc_vjitter, desc_invertfield, desc_pixelcenter,
 		desc_dithering, desc_aniso, desc_widescreen
 	};
 	return (item >= 0 && item < SWV_COUNT) ? descs[item] : NULL;

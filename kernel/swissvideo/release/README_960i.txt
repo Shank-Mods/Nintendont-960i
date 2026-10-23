@@ -58,6 +58,11 @@ CMPV-DOL compatibility, like in Swiss. If you get a black screen, power
 off the Wii and set "Swiss Video Patches" to Off, or the video mode back
 to Auto, or AVE Compatibility back to AVE-RVL.
 
+"Invert Field Order" (not in Swiss) swaps which field each frame is
+rendered for. Try it if a game looks combed or shimmery with field
+rendering on (960i, or Field Rendering On/TAA), as if its fields were
+swapped. If it helps, please report the game.
+
 While "Swiss Video Patches" is On, Nintendont's own video options (Force
 Progressive, Video Mode, Video Width, Screen Position) are ignored. Turn it
 Off to use Nintendont normally.

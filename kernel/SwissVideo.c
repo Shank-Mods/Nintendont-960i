@@ -129,6 +129,7 @@ static struct {
 	int disableDithering;
 	int forceAnisotropy;
 	int forceWidescreen;
+	int invertFieldOrder;	/* Nintendont addition, see SwissVideoInvertFieldOrder() */
 	int aveCompat;
 	int rt4kOptim;
 	int forceDTVStatus;
@@ -906,6 +907,7 @@ static void SwissVideoSetup(void)
 	swissSettings.disableDithering = b->disableDithering;
 	swissSettings.forceAnisotropy = b->forceAnisotropy;
 	swissSettings.forceWidescreen = b->forceWidescreen;
+	swissSettings.invertFieldOrder = b->invertFieldOrder;
 	swissSettings.sramVideo = b->sramVideo;
 	swissSettings.sram60Hz = b->sram60Hz;
 	swissSettings.sramProgressive = b->sramProgressive;
@@ -947,9 +949,40 @@ static void SwissVideoSetup(void)
 		swissSettings.fixPixelCenter, swissSettings.disableDithering, swissSettings.forceAnisotropy,
 		swissSettings.forceWidescreen, swissSettings.forceDTVStatus, swissSettings.rt4kOptim,
 		swissSettings.forceVideoActive);
+	swv_log("SwissVideo:invertFieldOrder %i\r\n", swissSettings.invertFieldOrder);
 	swv_log("SwissVideo:sramVideo %i, 60Hz %i, progressive %i, viTVMode %i\r\n",
 		swissSettings.sramVideo, swissSettings.sram60Hz, swissSettings.sramProgressive,
 		swiss_newmode.viTVMode);
+}
+
+/*
+	"Invert Field Order" (not a Swiss option): Swiss' forced field rendering
+	takes the parity it renders each frame for from VAR_NEXT_FIELD, which
+	VIRetraceHandlerHook sets to !current field (srwi / lis / xori 1 / stb).
+	Some games show their frames one field later than Swiss expects, so
+	every field is rendered for the wrong parity. Removing the xori makes
+	VAR_NEXT_FIELD the current field instead, inverting the parity used by
+	every GXSetViewport / __GXSetViewport path that reads VAR_CURRENT_FIELD.
+	Games that pass their own field to GXSetViewportJitter are unaffected.
+*/
+#define PPC_XORI_R3_R3_1	0x68630001
+#define PPC_NOP			0x60000000
+
+static void SwissVideoInvertFieldOrder(void)
+{
+	u32 *hook = patch_locations[VI_RETRACEHANDLERHOOK];
+	if (!hook) {
+		swv_log("SwissVideo:invert field order: no forced field rendering in this executable\r\n");
+		return;
+	}
+	if (P2C_PTR(hook)[2] != PPC_XORI_R3_R3_1) {
+		swv_log("SwissVideo:invert field order: unexpected VIRetraceHandlerHook %08X, not changed\r\n",
+			P2C_PTR(hook)[2]);
+		return;
+	}
+	P2C_PTR(hook)[2] = PPC_NOP;
+	sync_after_write(P2C_PTR(hook), 0x20);
+	swv_log("SwissVideo:field order inverted (VIRetraceHandlerHook @ %08X)\r\n", hook);
 }
 
 void SwissVideoPatch(char *Buffer, u32 Length)
@@ -989,6 +1022,8 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 		Patch_Widescreen((u32 *)Buffer, Length, PATCH_DOL);
 	if (swissSettings.forceAnisotropy)
 		Patch_TexFilt((u32 *)Buffer, Length, PATCH_DOL);
+	if (swissSettings.invertFieldOrder)
+		SwissVideoInvertFieldOrder();
 
 	sync_after_write(Buffer, Length);
 	SwissVideoFlushVars();

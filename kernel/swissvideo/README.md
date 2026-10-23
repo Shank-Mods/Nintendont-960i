@@ -23,6 +23,7 @@ Settings menu, right column: **Swiss Video** (press A) opens its own page.
 | Vertical Offset | -99 to +99 lines |
 | Vertical Filter | Auto, 0, 1, 2 |
 | Field Rendering | Auto, On, Off, TAA |
+| Invert Field Order | No / Yes (not a Swiss option, see below) |
 | Fix Pixel Center | No, 1/24, 1/12 |
 | Disable Dithering | No / Yes |
 | Anisotropic Filter | No / Yes |
@@ -78,6 +79,16 @@ Wii's video encoder) Swiss's code does the following:
   `getTiming`'s table extended by Swiss's 960i timings.
 * `OSGetProgressiveMode` / `OSGetEuRgb60Mode` / `__VIInit` are patched so the
   game starts in a progressive (31kHz) mode.
+
+**Invert Field Order** is a Nintendont addition. Swiss's forced field
+rendering renders each frame for the parity `VIRetraceHandlerHook` predicts
+(`VAR_NEXT_FIELD = !current field`, latched by `GXCopyDispHook`). Games that
+show their frames a field later than that (triple buffering, CPU running a
+frame ahead of the GPU, ...) end up with every field rendered for the wrong
+parity. With the option on, the kernel replaces the hook's `xori r3,r3,1`
+with a `nop` after patching, which inverts the parity for every forced field
+rendering path. Games that pass their own field to `GXSetViewportJitter`,
+and 480sf (which latches the field in `VISetRegs`), are not affected.
 
 Force Widescreen hooks `C_MTXFrustum` / `C_MTXPerspective` (and their light
 variants, `GXSetProjection` as a fallback; `C_MTXOrtho` and `GXSetScissor`

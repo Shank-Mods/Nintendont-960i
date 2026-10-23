@@ -75,6 +75,7 @@ static void SwissCfgSanitize(void)
 	swcfg->ForceVideoActive = !!swcfg->ForceVideoActive;
 	swcfg->DisableDithering = !!swcfg->DisableDithering;
 	swcfg->ForceAnisotropy = !!swcfg->ForceAnisotropy;
+	swcfg->InvertFieldOrder = !!swcfg->InvertFieldOrder;
 }
 
 bool SwissCfgLoad(void)
@@ -229,6 +230,7 @@ void SwissVideoPrepareBoot(u32 BI2region, u32 GameID, bool allowed)
 	b.disableDithering = swcfg->DisableDithering;
 	b.forceAnisotropy = swcfg->ForceAnisotropy;
 	b.forceWidescreen = swcfg->ForceWidescreen;
+	b.invertFieldOrder = swcfg->InvertFieldOrder;
 
 	/* config_defaults(): a few games have their own defaults */
 	for (i = 0; i < sizeof(fixPixelCenterEntries) / sizeof(fixPixelCenterEntries[0]); i++) {
