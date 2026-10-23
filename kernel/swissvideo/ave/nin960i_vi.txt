@@ -39,14 +39,10 @@
 # Works (left half picture, game runs) -> the right half changes are.
 #hrtest=1
 #
-# Results so far: replaying unchanged works; changing the copy OR the
-# scissors in the replayed commands hangs the GPU.
-# --- T8: unchanged replay, but the copy and scissor commands are written
-# back with the SAME values. Hangs -> writing to the FIFO is the problem.
-#hrtest=145
-# --- T9: like T7 (copy to the right half only), but written as whole
-# 32 bit words instead of single bytes
-#hrtest=336
+# (Single byte writes into the GPU's command buffer were what hung the
+# GPU; patches are now written as whole 32 bit words.)
+# --- T10: Two-pass with everything kept running after a hang
+#hrtest=16
 #
 # --- R1: picture window narrowed to 720 clocks (normal 480p width)
 # Picture (or bars) on the left part of the screen -> the encoder

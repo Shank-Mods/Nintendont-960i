@@ -103,7 +103,6 @@ static inline void cp_set32(u32 i, u32 v)
 
 struct ring {
 	u32 base, size;
-	u32 wordwr;		/* HR_TEST_WORDWR: patch with 32 bit read-modify-write */
 };
 
 static inline u32 ring_add(const struct ring *r, u32 p, u32 n)
@@ -124,16 +123,17 @@ static inline u8 ring_rd(const struct ring *r, u32 p, u32 n)
 	return *UNCACHED(ring_add(r, p, n));
 }
 
+/*
+	FIFO patches are 32 bit read-modify-write: single byte stores to the
+	FIFO made the GPU hang on the patched command, even when the value
+	written was the one already there (hardware tests T8 / T9).
+*/
 static inline void ring_wr(const struct ring *r, u32 p, u32 n, u8 v)
 {
 	u32 a = ring_add(r, p, n);
-	if (r->wordwr) {
-		volatile u32 *w = (volatile u32 *)(0xC0000000 | (a & ~3));
-		u32 sh = (3 - (a & 3)) * 8;
-		*w = (*w & ~(0xFFu << sh)) | ((u32)v << sh);
-	} else {
-		*UNCACHED(a) = v;
-	}
+	volatile u32 *w = (volatile u32 *)(0xC0000000 | (a & ~3));
+	u32 sh = (3 - (a & 3)) * 8;
+	*w = (*w & ~(0xFFu << sh)) | ((u32)v << sh);
 }
 
 /* Does a BP write "61 rr vv vv vv" with this 32 bit value start at p? */
@@ -188,7 +188,7 @@ static u32 find_scissor(const struct ring *r, u32 p, u32 window)
 	NOPs (opcode 00) for the replay.
 */
 
-static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len)
+static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len, u32 *last_tok)
 {
 	u32 i, j, q, n = 0;
 	u8 reg;
@@ -199,6 +199,13 @@ static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len)
 		if (ring_rd(r, q, 0) != 0x61)
 			continue;
 		reg = ring_rd(r, q, 1);
+		if (reg == 0x47 && ring_rd(r, q, 2) == 0) {
+			/* the game's GXSetDrawSync token (ours are 5A51-5A54) */
+			u32 t = ((u32)ring_rd(r, q, 3) << 8) | ring_rd(r, q, 4);
+			if ((t & 0xFFF8) != 0x5A50)
+				*last_tok = t;
+			continue;
+		}
 		if (reg == 0x45) {
 			if (ring_rd(r, q, 2) != 0 || ring_rd(r, q, 3) != 0 || ring_rd(r, q, 4) != 2)
 				continue;
@@ -275,7 +282,6 @@ static int wait_gpu(struct hr_data *d, u32 tok, u32 where, u32 frame_start)
 		ST->diag_cnt = cp_get32(24);
 		ST->diag_rp = (cp_get32(28) & 0x3FFFFFFF) - frame_start;
 		ST->diag_tok = ((u32)PER[7] << 16) | tok;
-		ST2->diag_nmk = d->nmk;
 	}
 	return 0;
 }
@@ -309,15 +315,6 @@ static void recover_gpu(u32 en)
 	ST2->recovered++;
 }
 
-/* Two-pass: a PE token in the stream, to see how far a hung replay got */
-static void marker(struct hr_data *d)
-{
-	u32 n;
-	if (d->mode != HR_MODE_TWOPASS || !d->frame_start || d->nmk >= 0xFFF)
-		return;
-	n = d->nmk++;
-	bp_write(0x47000000 | HR_MARKER | n);
-}
 
 
 /*
@@ -360,7 +357,6 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	p = fifo_wp();
 	d->frame_start = (p - 32 >= r->base) ? p - 32 : p - 32 + r->size;
 	d->nsc = 0;
-	d->nmk = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
 	if (d->cur_main)
@@ -395,7 +391,6 @@ void hr_scissor(u32 l, u32 t, u32 w, u32 h)
 		orig(l, t, w, h);
 	}
 	bp_write(BP_SCOFF_T0);
-	marker(d);
 }
 
 void hr_copydisp(void *dest, u32 clear)
@@ -411,7 +406,6 @@ void hr_copydisp(void *dest, u32 clear)
 	tok = 0xFFFFFFFF;		/* game token not changed yet */
 	r.base = cp_get32(16) & 0x3FFFFFFF;
 	r.size = (cp_get32(18) & 0x3FFFFFFF) + 4 - r.base;
-	r.wordwr = d->test & HR_TEST_WORDWR;
 	ST->magic = HR_STATS_MAGIC;
 	ST->copies++;
 	ST->fifo_base = r.base;
@@ -493,7 +487,12 @@ void hr_copydisp(void *dest, u32 clear)
 		}
 	}
 	ST->last_patched = patched;
-	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
+	/*
+		The game may poll its GXSetDrawSync token; ours replace it in the
+		PE token register, so the last one the game sent is put back at
+		the end (the value read at GXCopyDisp time can be older).
+	*/
+	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist, &tok);
 	ppc_sync();
 
 
@@ -556,7 +555,6 @@ void hr_calldl(const void *list, u32 nbytes)
 	}
 	nop = (((u32)d->nop_dl + 31) & ~31) & 0x3FFFFFFF;
 	orig((const void *)(0x80000000 | nop), 32);
-	marker(d);
 	src = (volatile u32 *)(0xC0000000 | p);
 	for (i = 0; i < nbytes / 4; i++)
 		WGP32 = src[i];

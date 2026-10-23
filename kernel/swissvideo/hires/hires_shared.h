@@ -60,7 +60,7 @@ struct hr_data {
 #define HR_TEST_NOCOPY	32	/* second pass: don't move the copy to the right half */
 #define HR_TEST_NOSC	64	/* second pass: don't move scissors / viewports */
 #define HR_TEST_REWRITE	128	/* write the copy / scissor commands back unchanged */
-#define HR_TEST_WORDWR	256	/* patch the FIFO with 32 bit writes instead of bytes */
+/* 256 was "32 bit FIFO writes", now always on */
 
 /* Our PE token values (not the game's, not markers 0xAxxx) */
 #define HR_TOKEN_A	0x5A51
