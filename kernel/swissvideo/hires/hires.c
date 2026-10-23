@@ -103,6 +103,7 @@ static inline void cp_set32(u32 i, u32 v)
 
 struct ring {
 	u32 base, size;
+	u32 wordwr;		/* HR_TEST_WORDWR: patch with 32 bit read-modify-write */
 };
 
 static inline u32 ring_add(const struct ring *r, u32 p, u32 n)
@@ -125,7 +126,14 @@ static inline u8 ring_rd(const struct ring *r, u32 p, u32 n)
 
 static inline void ring_wr(const struct ring *r, u32 p, u32 n, u8 v)
 {
-	*UNCACHED(ring_add(r, p, n)) = v;
+	u32 a = ring_add(r, p, n);
+	if (r->wordwr) {
+		volatile u32 *w = (volatile u32 *)(0xC0000000 | (a & ~3));
+		u32 sh = (3 - (a & 3)) * 8;
+		*w = (*w & ~(0xFFu << sh)) | ((u32)v << sh);
+	} else {
+		*UNCACHED(a) = v;
+	}
 }
 
 /* Does a BP write "61 rr vv vv vv" with this 32 bit value start at p? */
@@ -403,6 +411,7 @@ void hr_copydisp(void *dest, u32 clear)
 	tok = 0xFFFFFFFF;		/* game token not changed yet */
 	r.base = cp_get32(16) & 0x3FFFFFFF;
 	r.size = (cp_get32(18) & 0x3FFFFFFF) + 4 - r.base;
+	r.wordwr = d->test & HR_TEST_WORDWR;
 	ST->magic = HR_STATS_MAGIC;
 	ST->copies++;
 	ST->fifo_base = r.base;
@@ -475,6 +484,14 @@ void hr_copydisp(void *dest, u32 clear)
 	}
 	if (!(d->test & (HR_TEST_SAME | HR_TEST_NOCOPY)))
 		bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
+	if (d->test & HR_TEST_REWRITE) {	/* same values written back */
+		bp_set(&r, at, 0x4B000000 | (dst >> 5));
+		for (i = 0; i < nfound; i++) {
+			bp_set(&r, found[i], BP_SCIS0_T0);
+			bp_set(&r, ring_add(&r, found[i], 5), BP_SCIS1_T0);
+			bp_set(&r, ring_add(&r, found[i], 10), BP_SCOFF_T0);
+		}
+	}
 	ST->last_patched = patched;
 	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
 	ppc_sync();
