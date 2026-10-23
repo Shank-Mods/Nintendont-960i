@@ -39,15 +39,9 @@
 # Works (left half picture, game runs) -> the right half changes are.
 #hrtest=1
 #
-# Unchanged replays still hang now and then, right at the start of the
-# frame. Each of these keeps replaying after a hang (so the log counts
-# how often it happens); run ONE at a time, about a minute each:
-# --- T2: also wait until the GPU reports itself idle before replaying
-#hrtest=19
-# --- T3: wait an extra 1 ms before replaying
-#hrtest=21
-# --- T4: don't re-send the vertex formats at the start of each frame
-#hrtest=25
+# --- T5: like T1, plus re-send the vertex formats each frame (the old
+# default; replays hung now and then with it)
+#hrtest=9
 #
 # --- R1: picture window narrowed to 720 clocks (normal 480p width)
 # Picture (or bars) on the left part of the screen -> the encoder

@@ -189,14 +189,20 @@ static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len)
 	u32 i, j, q, n = 0;
 	u8 reg;
 
-	if (len > PE_SCAN_WINDOW)
-		len = PE_SCAN_WINDOW;
+	/* whole frame; exact values: draw done 45 000002, token interrupt 48 00xxxx */
+	(void)PE_SCAN_WINDOW;
 	for (i = 0; i + 5 <= len; i++) {
 		q = ring_add(r, p, i);
 		if (ring_rd(r, q, 0) != 0x61)
 			continue;
 		reg = ring_rd(r, q, 1);
-		if (reg != 0x45 && reg != 0x48)
+		if (reg == 0x45) {
+			if (ring_rd(r, q, 2) != 0 || ring_rd(r, q, 3) != 0 || ring_rd(r, q, 4) != 2)
+				continue;
+		} else if (reg == 0x48) {
+			if (ring_rd(r, q, 2) != 0)
+				continue;
+		} else
 			continue;
 		for (j = 0; j < 5; j++)
 			ring_wr(r, q, j, 0);
@@ -399,7 +405,7 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	d->nmk = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
-	if (!(d->test & HR_TEST_NOVTX))
+	if (d->test & HR_TEST_VTX)
 		send_vertex_formats(d);
 	if (d->cur_main)
 		orig(0, 0, 640, 240);

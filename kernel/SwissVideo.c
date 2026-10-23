@@ -1418,6 +1418,7 @@ static void SwissVideoLogHiRes(void)
 }
 
 static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;
+static u32 viLogWritten = 0, viLogHold = 0;	/* first write held back ~8 s */
 
 /*
 	Each boot gets its own numbered log, /nin960i_01.log ... _99.log (the
@@ -1466,7 +1467,18 @@ void SwissVideoLogVI(void)
 		return;
 
 	/* only touch the file system while no disc read is in flight */
-	if (viLogPending && DI_IRQ == false) {
+	/*
+		Writing the log while the game is still loading competes with its
+		disc reads, so the first write waits ~8 s (a run that dies earlier
+		still gets its log then).
+	*/
+	if (viLogPending && !viLogWritten) {
+		if (!viLogHold)
+			viLogHold = read32(HW_TIMER);
+		if (TimerDiffTicks(viLogHold) >= 1898437 * 8)
+			viLogWritten = 1;
+	}
+	if (viLogPending && viLogWritten && DI_IRQ == false) {
 		SwissVideoWriteLog();
 		viLogPending = 0;
 	}

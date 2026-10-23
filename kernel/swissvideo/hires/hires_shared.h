@@ -63,7 +63,8 @@ struct hr_data {
 #define HR_TEST_SAME	1	/* replay the frame unchanged (no right half patching) */
 #define HR_TEST_IDLE	2	/* also wait for the CP idle bits before rewinding */
 #define HR_TEST_DELAY	4	/* wait 1 ms before rewinding */
-#define HR_TEST_NOVTX	8	/* don't re-send the vertex formats in the frame prologue */
+#define HR_TEST_VTX	8	/* re-send the vertex formats in the frame prologue (made
+				   replays hang now and then on hardware, off by default) */
 #define HR_TEST_KEEPON	16	/* keep replaying after hung replays (no switch to Left half) */
 
 /* Our PE token values (not the game's, not markers 0xAxxx) */
