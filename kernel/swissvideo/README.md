@@ -112,7 +112,8 @@ fetch width), `viWidth` 640 / `viXOrigin` 80 and 240 lines; the timing is
 NTSC 240p vertically (263 lines) with every horizontal value doubled
 (half-line 858, sync 127). Active window: clocks 295-1575.
 
-**GX** (`hires/`, a position independent PowerPC payload in the patch area;
+**GX** (`hires/`, a position independent PowerPC payload, run from MEM2 at
+0x93170000 with absolute jump stubs in its state block at 0x80001000;
 the build links it at two addresses and fails unless the blobs match):
 
 * `GXSetViewport`: a 640x480 viewport becomes 1280x240 (x doubled, y halved;

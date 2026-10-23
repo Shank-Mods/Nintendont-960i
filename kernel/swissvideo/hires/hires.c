@@ -77,6 +77,19 @@ static inline u32 mftb(void)
 	return t;
 }
 
+static inline u32 irq_off(void)
+{
+	u32 msr;
+	__asm__ volatile ("mfmsr %0" : "=r" (msr));
+	__asm__ volatile ("mtmsr %0" : : "r" (msr & ~0x8000) : "memory");
+	return msr;
+}
+
+static inline void irq_restore(u32 msr)
+{
+	__asm__ volatile ("mtmsr %0" : : "r" (msr) : "memory");
+}
+
 static inline void fifo_nops(u32 words)
 {
 	while (words--)
@@ -399,7 +412,7 @@ void hr_copydisp(void *dest, u32 clear)
 	copydisp_fn orig = (copydisp_fn)d->tramp_cd;
 	struct ring r;
 	u32 dst = (u32)dest & 0x3FFFFFFF;
-	u32 posL, end, dist, at, i, patched, en, tok, wp;
+	u32 posL, end, dist, at, i, patched, en, tok, wp, msr;
 	u32 found[HR_MAX_SCISSOR + 1];
 	u32 nfound = 0;
 
@@ -497,19 +510,41 @@ void hr_copydisp(void *dest, u32 clear)
 	ppc_sync();
 
 
-	/* Pass 2: rewind the GPU to the start of the frame */
+	/*
+		Pass 2: rewind the GPU to the start of the frame. The read/write
+		distance register is moved back by the same amount as the read
+		pointer, with interrupts off (nothing else may write the FIFO in
+		between). Setting it from the write pointer instead left it 32
+		bytes short now and then; once the GPU caught up it went negative,
+		GX's overflow handler suspended the game's thread and nothing ever
+		resumed it.
+	*/
+	msr = irq_off();
 	en = CPR[1];
 	CPR[1] = en & ~0x0D;		/* stop reading, no watermark interrupts */
 	ppc_sync();
-	wp = cp_get32(26) & 0x3FFFFFFF;	/* everything the CP has been given */
+	wp = cp_get32(28) & 0x3FFFFFFF;	/* where the GPU stopped reading */
 	cp_set32(28, d->frame_start);	/* read pointer */
-	cp_set32(24, ring_dist(&r, d->frame_start, wp));	/* read/write distance */
+	cp_set32(24, cp_get32(24) + ring_dist(&r, d->frame_start, wp));
 	ppc_sync();
 	CPR[1] = (en & ~0x0C) | 1;	/* read again */
+	irq_restore(msr);
 	if (wait_gpu(d, tok == 0x5A53 ? 0x5A54 : 0x5A53, 2, d->frame_start)) {
+		u32 t0 = mftb();
 		ST->replays++;
+		/* until the GPU has read everything (our trailing NOPs too) */
+		while (!(CPR[0] & 4) && mftb() - t0 < WAIT_TICKS / 100) ;
+		msr = irq_off();
+		if ((CPR[0] & 4) && cp_get32(24) != 0) {
+			/* read idle but distance not 0: put it right */
+			CPR[1] = en & ~0x0D;
+			ppc_sync();
+			cp_set32(24, 0);
+			ST2->dist_fixed++;
+		}
 		CPR[2] = 3;		/* clear watermark status */
 		CPR[1] = en;
+		irq_restore(msr);
 	} else {
 		ST->timeout2++;
 		ST2->hung_frames |= 1u << (ST->copies & 31);

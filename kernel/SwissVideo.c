@@ -1230,7 +1230,14 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 	}
 
 	/* Payload and its state block, in the patch area */
-	payload = 0x80000000 | (PatchCopy(hires_payload, hires_payload_size) - MEM1_BASE);
+#ifndef SWISSVIDEO_HOST_TEST
+	if (hires_payload_size <= HR_PAYLOAD_MEM2_MAX) {
+		memcpy((void *)HR_PAYLOAD_MEM2_ARM, hires_payload, hires_payload_size);
+		sync_after_write((void *)HR_PAYLOAD_MEM2_ARM, hires_payload_size);
+		payload = HR_PAYLOAD_MEM2_PPC;
+	} else
+#endif
+		payload = 0x80000000 | (PatchCopy(hires_payload, hires_payload_size) - MEM1_BASE);
 	memset(hr_data_init, 0, sizeof(hr_data_init));
 	hd = (struct hr_data *)hr_data_init;
 	hd->mode = swissSettings.hiRes240p;
@@ -1255,17 +1262,33 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 		block = 0x80000000 | (PatchCopy(hr_data_init, sizeof(hr_data_init)) - MEM1_BASE);
 	hdv = (u32 *)block;
 
-	hr_hook(viewport, hdv + 1, (u32 *)(payload + HR_ENTRY_VIEWPORT), "GXSetViewport");
-	hr_hook(scissor, hdv + 3, (u32 *)(payload + HR_ENTRY_SCISSOR), "GXSetScissor");
-	hr_hook(copydisp, hdv + 5, (u32 *)(payload + HR_ENTRY_COPYDISP), "GXCopyDisp");
+	/* absolute jumps to the payload entries (it may be out of b range) */
+	{
+		static const u32 entry[4] = { HR_ENTRY_VIEWPORT, HR_ENTRY_SCISSOR,
+			HR_ENTRY_COPYDISP, HR_ENTRY_CALLDL };
+		u32 *j = P2C_PTR(hdv + __builtin_offsetof(struct hr_data, jmp) / 4);
+		for (i = 0; i < 4; i++) {
+			u32 t = payload + entry[i];
+			j[i * 4 + 0] = 0x3D800000 | (t >> 16);		/* lis r12, t@h */
+			j[i * 4 + 1] = 0x618C0000 | (t & 0xFFFF);	/* ori r12, r12, t@l */
+			j[i * 4 + 2] = 0x7D8903A6;			/* mtctr r12 */
+			j[i * 4 + 3] = 0x4E800420;			/* bctr */
+		}
+	}
+#define HR_JMP(n)	(hdv + __builtin_offsetof(struct hr_data, jmp) / 4 + (n) * 4)
+	hr_hook(viewport, hdv + 1, HR_JMP(0), "GXSetViewport");
+	hr_hook(scissor, hdv + 3, HR_JMP(1), "GXSetScissor");
+	hr_hook(copydisp, hdv + 5, HR_JMP(2), "GXCopyDisp");
 	if (swissSettings.hiRes240p == HR_MODE_TWOPASS) {
 		u32 *calldl = hr_find_calldl(data, length);
 		if (calldl && hr_hookable(calldl, "GXCallDisplayList"))
 			hr_hook(calldl, hdv + __builtin_offsetof(struct hr_data, tramp_dl) / 4,
-				(u32 *)(payload + HR_ENTRY_CALLDL), "GXCallDisplayList");
+				HR_JMP(3), "GXCallDisplayList");
 	}
+#undef HR_JMP
 	sync_after_write(P2C_PTR(block), sizeof(struct hr_data));
-	sync_after_write(P2C_PTR(payload), hires_payload_size);
+	if (payload < 0x90000000)
+		sync_after_write(P2C_PTR(payload), hires_payload_size);
 
 	var_write32(HR_DATA_PTR_VAR, block);
 	sync_after_write((void *)(MEM1_BASE + (HR_DATA_PTR_VAR & ~0x1F)), 0x20);
@@ -1390,8 +1413,8 @@ static void SwissVideoLogHiRes(void)
 			s->pe_nopped, s2->vp_shifted);
 		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
 			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
-		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X)\r\n",
-			s2->recovered, s2->hung_frames);
+		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X) | CP distance fixed %u\r\n",
+			s2->recovered, s2->hung_frames, s2->dist_fixed);
 		if (s->diag_where)
 			swv_log("SwissVideo:hires: first timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X, %u markers\r\n",
 				s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok, s2->diag_nmk);

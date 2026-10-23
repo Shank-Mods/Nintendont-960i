@@ -64,7 +64,18 @@ struct hr_data {
 	unsigned int nmk;		/* markers (PE tokens 0xA000 + n) in this frame */
 	unsigned int fails;		/* replays that hung the GPU */
 	unsigned int test;		/* HR_TEST_* (experiments: hrtest= in nin960i_vi.txt) */
+	unsigned int jmp[4][4];		/* lis r12 / ori r12 / mtctr r12 / bctr to the payload */
 };
+
+/*
+	The payload runs from MEM2 (the PPC can execute it there, like PADReadGC
+	at 0x93000000); the patch area in low MEM1 is too small for it. Hooks
+	branch to jmp[] in hr_data (MEM1), which jumps on with an absolute
+	address.
+*/
+#define HR_PAYLOAD_MEM2_PPC	0x93170000
+#define HR_PAYLOAD_MEM2_ARM	0x13170000
+#define HR_PAYLOAD_MEM2_MAX	0x8000
 
 #define HR_TEST_SAME	1	/* replay the frame unchanged (no right half patching) */
 #define HR_TEST_KEEPON	16	/* keep replaying after hung replays (no switch to Left half) */
@@ -88,7 +99,7 @@ struct hr_stats2 {
 	unsigned int dl_max;		/* largest list copied */
 	unsigned int dl_big;		/* largest list called */
 	unsigned int main_thread;	/* OSThread that calls GXCopyDisp (0x800000E4) */
-	unsigned int unused1;
+	unsigned int dist_fixed;	/* CP distance put back to 0 after a replay */
 	unsigned int diag_nmk;		/* first timeout: markers in that frame */
 	unsigned int recovered;		/* GPU resets after a hung replay */
 	unsigned int vp_shifted;	/* viewports moved for second passes */
