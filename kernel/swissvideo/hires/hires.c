@@ -215,7 +215,7 @@ static u32 find_scissor(const struct ring *r, u32 p, u32 window)
 	NOPs (opcode 00) for the replay.
 */
 
-static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len, u32 *last_tok)
+static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len, u32 *last_tok, u32 nopdl)
 {
 	u32 i, j, q, n = 0;
 	u8 reg;
@@ -223,6 +223,22 @@ static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len, u32 *last_tok
 	/* exact values: draw done 45 000002, token interrupt 48 00xxxx */
 	for (i = 0; i + 5 <= len; i++) {
 		q = ring_add(r, p, i);
+		if (ring_rd(r, q, 0) == 0x40 && i + 9 <= len) {
+			/*
+				hr_calldl's call of the NOP list: a display list can't
+				call another one, so it goes for the replay (as a
+				display list itself).
+			*/
+			u32 a = ((u32)ring_rd(r, q, 1) << 24) | ((u32)ring_rd(r, q, 2) << 16) |
+				((u32)ring_rd(r, q, 3) << 8) | ring_rd(r, q, 4);
+			if ((a & 0x3FFFFFFF) == nopdl && ring_rd(r, q, 5) == 0 && ring_rd(r, q, 6) == 0 &&
+			    ring_rd(r, q, 7) == 0 && ring_rd(r, q, 8) == 32) {
+				for (j = 0; j < 9; j++)
+					ring_wr(r, q, j, 0);
+				i += 8;
+			}
+			continue;
+		}
 		if (ring_rd(r, q, 0) != 0x61)
 			continue;
 		reg = ring_rd(r, q, 1);
@@ -527,7 +543,8 @@ void hr_copydisp(void *dest, u32 clear)
 		PE token register, so the last one the game sent is put back at
 		the end (the value read at GXCopyDisp time can be older).
 	*/
-	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist, &tok);
+	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist, &tok,
+		(((u32)d->nop_dl + 31) & ~31) & 0x3FFFFFFF);
 	ppc_sync();
 
 
