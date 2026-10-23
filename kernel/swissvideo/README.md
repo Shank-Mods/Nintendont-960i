@@ -196,8 +196,9 @@ Normal builds ignore both files.
 
 ## Diagnostics
 
-Every boot with the Swiss video patches writes `/nin960i.log` to the boot
-device: the settings used, the timing, every Swiss signature found
+Every boot with the Swiss video patches writes a numbered log to the boot
+device (`/nin960i_01.log`, `_02`, ..., the first free number; `/nin960i.log`
+is always a copy of the latest): the settings used, the timing, every Swiss signature found
 (`Found:[...]`) and ten snapshots of the VI registers (captured by PADRead,
 logged ~3 s apart).
 

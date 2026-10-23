@@ -1419,15 +1419,43 @@ static void SwissVideoLogHiRes(void)
 
 static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;
 
-static void SwissVideoWriteLog(void)
+/*
+	Each boot gets its own numbered log, /nin960i_01.log ... _99.log (the
+	first number not on the drive yet), so several tests can be run before
+	copying them off. /nin960i.log is always the latest one.
+*/
+static char swv_logname[20];
+
+static void SwissVideoWriteLogTo(const char *name)
 {
 	FIL f;
 	UINT wrote;
 
-	if (f_open_char(&f, "/nin960i.log", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
+	if (f_open_char(&f, name, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
 		return;
 	f_write(&f, swv_logbuf, swv_loglen, &wrote);
 	f_close(&f);
+}
+
+static void SwissVideoWriteLog(void)
+{
+	if (!swv_logname[0]) {
+		FIL f;
+		u32 n;
+		strcpy(swv_logname, "/nin960i_00.log");
+		for (n = 1; n <= 99; n++) {
+			swv_logname[9] = '0' + n / 10;
+			swv_logname[10] = '0' + n % 10;
+			if (f_open_char(&f, swv_logname, FA_READ | FA_OPEN_EXISTING) != FR_OK)
+				break;
+			f_close(&f);
+		}
+		if (n > 99)
+			swv_logname[9] = swv_logname[10] = '9';	/* full: keep rewriting _99 */
+		swv_log("SwissVideo:this log is also saved as %s\r\n", swv_logname);
+	}
+	SwissVideoWriteLogTo(swv_logname);
+	SwissVideoWriteLogTo("/nin960i.log");
 }
 
 void SwissVideoLogVI(void)
