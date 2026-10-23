@@ -1151,6 +1151,57 @@ static bool SwissVideoHiResPrepare(u32 *data, u32 length)
 	return true;
 }
 
+/*
+	GXCallDisplayList (Dolphin SDK): flushes GX's dirty state, then writes
+	the CALL_DL command:
+		li    rX, 0x40
+		lis   rY, 0xCC01
+		stb   rX, -0x8000(rY)
+		stw   rA, -0x8000(rY)		list
+		stw   rB, -0x8000(rY)		nbytes
+	The li/lis come in either order. The function start is the closest
+	"mflr r0" before it with no blr in between.
+*/
+static u32 *hr_find_calldl(u32 *data, u32 length)
+{
+	u32 i, k, n = 0, words = length / sizeof(u32);
+	u32 *found = NULL;
+
+	for (i = 2; i + 2 < words; i++) {
+		u32 st = data[i], rx, ry, li = 0;
+		if ((st & 0xFC00FFFF) != 0x98008000)
+			continue;
+		rx = (st >> 21) & 0x1F;
+		ry = (st >> 16) & 0x1F;
+		if ((data[i + 1] & 0xFC1FFFFF) != (0x90008000 | (ry << 16)) ||
+		    (data[i + 2] & 0xFC1FFFFF) != (0x90008000 | (ry << 16)))
+			continue;
+		for (k = 1; k <= 4 && k <= i; k++) {
+			if (data[i - k] == (0x38000040 | (rx << 21)))
+				li = 1;
+		}
+		if (!li)
+			continue;
+		for (k = 1; k <= 48 && k <= i; k++) {
+			if (data[i - k] == 0x4E800020)	/* blr: no prologue in this function */
+				break;
+			if (data[i - k] == 0x7C0802A6) {	/* mflr r0 */
+				u32 *f = Calc_ProperAddress(data, PATCH_DOL, (i - k) * sizeof(u32));
+				swv_log("Found:[GXCallDisplayList] @ %08X (CALL_DL at +%u)\r\n", f, k * 4);
+				if (!found)
+					found = f;
+				n++;
+				break;
+			}
+		}
+	}
+	if (n != 1) {
+		swv_log("SwissVideo:hires: GXCallDisplayList found %u times, display lists not copied\r\n", n);
+		return NULL;
+	}
+	return found;
+}
+
 static void SwissVideoHiResInstall(u32 *data, u32 length)
 {
 	u32 i, gxbits = 0;
@@ -1190,6 +1241,12 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 	hr_hook(viewport, hdv + 1, (u32 *)(payload + HR_ENTRY_VIEWPORT), "GXSetViewport");
 	hr_hook(scissor, hdv + 3, (u32 *)(payload + HR_ENTRY_SCISSOR), "GXSetScissor");
 	hr_hook(copydisp, hdv + 5, (u32 *)(payload + HR_ENTRY_COPYDISP), "GXCopyDisp");
+	if (swissSettings.hiRes240p == HR_MODE_TWOPASS) {
+		u32 *calldl = hr_find_calldl(data, length);
+		if (calldl && hr_hookable(calldl, "GXCallDisplayList"))
+			hr_hook(calldl, hdv + __builtin_offsetof(struct hr_data, tramp_dl) / 4,
+				(u32 *)(payload + HR_ENTRY_CALLDL), "GXCallDisplayList");
+	}
 	sync_after_write(P2C_PTR(block), sizeof(struct hr_data));
 	sync_after_write(P2C_PTR(payload), hires_payload_size);
 
@@ -1201,9 +1258,9 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 		write32(HR_STATS_ARM + i, 0);
 	write32(HR_STATS_ARM, HR_STATS_MAGIC);
 	sync_after_write((void *)HR_STATS_ARM, sizeof(struct hr_stats));
-	for (i = 0; i < 0x80; i += 4)
-		write32(HR_DUMP_ARM + i, 0);
-	sync_after_write((void *)HR_DUMP_ARM, 0x80);
+	for (i = 0; i < 0xC0; i += 4)
+		write32(HR_DUMP_ARM + i, 0);	/* dump and stats2 */
+	sync_after_write((void *)HR_DUMP_ARM, 0xC0);
 #endif
 	swv_log("SwissVideo:hires: payload @ %08X (%u bytes), data @ %08X, __GXData lwz %08X\r\n",
 		payload, hires_payload_size, block, hd->gxdata_fn[0]);
@@ -1308,6 +1365,12 @@ static void SwissVideoLogHiRes(void)
 		s->gxdata_ok, s->gxdata_bad, s->last_disp_size);
 	swv_log("SwissVideo:hires: draw done/token interrupts removed from replays %u | vertex formats re-sent %u bad %u\r\n",
 		s->pe_nopped, s->vtx_ok, s->vtx_bad);
+	{
+		const struct hr_stats2 *s2 = (const struct hr_stats2 *)HR_STATS2_ARM;
+		sync_before_read((void *)HR_STATS2_ARM, sizeof(struct hr_stats2));
+		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
+			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
+	}
 	if (s->diag_where) {
 		const u32 *dmp = (const u32 *)HR_DUMP_ARM;
 		u32 i;

@@ -21,7 +21,7 @@ _start:
 	b		hr_viewport_hook
 	b		hr_scissor
 	b		hr_copydisp
-	.long	0
+	b		hr_calldl
 
 /*
 	GXSetViewport(left, top, wd, ht, nearz, farz): a full screen 640x480

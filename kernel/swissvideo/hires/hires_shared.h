@@ -19,10 +19,18 @@
 #define HR_DUMP_ARM		0x13003300
 #define HR_DUMP_WORDS		30	/* + address and length */
 
+/* More counters (0x40 bytes) */
+#define HR_STATS2_PPC		0xD3003380
+#define HR_STATS2_ARM		0x13003380
+
+/* Display lists up to this size are copied into the FIFO instead of called */
+#define HR_DL_INLINE_MAX	16384
+
 /* Offsets of the entry points in the payload */
 #define HR_ENTRY_VIEWPORT	0x00
 #define HR_ENTRY_SCISSOR	0x04
 #define HR_ENTRY_COPYDISP	0x08
+#define HR_ENTRY_CALLDL		0x0C
 
 #define HR_MODE_OFF		0
 #define HR_MODE_LEFT		1	/* left half only (VI + GX setup test) */
@@ -45,6 +53,17 @@ struct hr_data {
 	unsigned int cur_l, cur_t, cur_w, cur_h, cur_main;	/* last GXSetScissor */
 	unsigned int nsc;		/* full screen GXSetScissor calls in this frame */
 	unsigned int sc_pos[HR_MAX_SCISSOR];	/* FIFO write pointer before each */
+	unsigned int tramp_dl[2];	/* GXCallDisplayList */
+	unsigned int nop_dl[16];	/* 32 aligned bytes of NOPs inside */
+};
+
+struct hr_stats2 {
+	unsigned int dl_inlined;	/* display lists copied into the FIFO */
+	unsigned int dl_called;		/* ... called as usual (too big, misaligned) */
+	unsigned int dl_bytes;		/* bytes copied */
+	unsigned int dl_max;		/* largest list copied */
+	unsigned int dl_big;		/* largest list called */
+	unsigned int reserved[11];
 };
 
 struct hr_stats {

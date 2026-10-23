@@ -23,6 +23,7 @@ typedef unsigned char u8;
 #define HR	((struct hr_data *)(*(volatile u32 *)(0x80000000 | HR_DATA_PTR_VAR)))
 #define ST	((volatile struct hr_stats *)HR_STATS_PPC)
 #define DUMP	((volatile u32 *)HR_DUMP_PPC)	/* [0] address, [1] bytes, [2..] data */
+#define ST2	((volatile struct hr_stats2 *)HR_STATS2_PPC)
 
 #define CPR	((volatile u16 *)0xCC000000)	/* command processor */
 #define PER	((volatile u16 *)0xCC001000)	/* pixel engine (7 = token) */
@@ -52,6 +53,7 @@ typedef unsigned char u8;
 typedef void (*scissor_fn)(u32, u32, u32, u32);
 typedef void (*copydisp_fn)(void *, u32);
 typedef u32 *(*gxdata_fn)(void);
+typedef void (*calldl_fn)(const void *, u32);
 
 static inline void ppc_sync(void)
 {
@@ -493,4 +495,40 @@ right_blank:
 	if (d->mode == HR_MODE_TWOPASS && d->frame_start && tok != 0xFFFFFFFF)
 		bp_write(0x47000000 | tok);
 	frame_prologue(d, &r);
+}
+
+/*
+	GXCallDisplayList: the FIFO only holds a call (address + size), and the
+	game may rebuild that list (text, 2D, per object lists in a frame heap)
+	before the replay, which then runs whatever is there now and can hang
+	the GPU. Lists up to HR_DL_INLINE_MAX are copied into the FIFO instead,
+	from memory as the GPU would read it, so the replay sees the same
+	commands. The original function still runs first, with a list of NOPs,
+	so GX flushes its pending state exactly as before.
+*/
+void hr_calldl(const void *list, u32 nbytes)
+{
+	struct hr_data *d = HR;
+	calldl_fn orig = (calldl_fn)d->tramp_dl;
+	u32 p = (u32)list & 0x3FFFFFFF;
+	volatile u32 *src;
+	u32 i, nop;
+
+	if (d->mode != HR_MODE_TWOPASS || nbytes == 0 || nbytes > HR_DL_INLINE_MAX ||
+	    (nbytes & 31) || (p & 31) || p + nbytes > 0x01800000) {
+		ST2->dl_called++;
+		if (nbytes > ST2->dl_big)
+			ST2->dl_big = nbytes;
+		orig(list, nbytes);
+		return;
+	}
+	nop = (((u32)d->nop_dl + 31) & ~31) & 0x3FFFFFFF;
+	orig((const void *)(0x80000000 | nop), 32);
+	src = (volatile u32 *)(0xC0000000 | p);
+	for (i = 0; i < nbytes / 4; i++)
+		WGP32 = src[i];
+	ST2->dl_inlined++;
+	ST2->dl_bytes += nbytes;
+	if (nbytes > ST2->dl_max)
+		ST2->dl_max = nbytes;
 }
