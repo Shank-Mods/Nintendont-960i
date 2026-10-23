@@ -562,16 +562,24 @@ void hr_copydisp(void *dest, u32 clear)
 	/*
 		Pass 2: the frame, still in the FIFO and now patched for the right
 		half, is run again as a display list (it holds no CALL_DL: lists
-		are copied in, see hr_calldl). Nothing waits for it: the next
-		frame's commands follow it in the FIFO. A frame that wraps around
-		the end of the FIFO isn't replayed (its right half stays as it was).
+		are copied in, see hr_calldl). A frame that wraps around the end
+		of the FIFO isn't replayed (frame_prologue pads the FIFO end so
+		that is rare).
 	*/
 	if (d->frame_start + dist <= r.base + r.size && !(d->frame_start & 31) && !(dist & 31) &&
 	    !d->dl_called) {
 		WGP8 = 0x40;
 		WGP32 = d->frame_start;
 		WGP32 = dist;
-		ST->replays++;
+		/*
+			Wait for it: once GXCopyDisp returns, the game counts the
+			frame as done and starts changing the vertex data and
+			matrices it used (that made the right half jump around).
+		*/
+		if (wait_gpu(d, tok == 0x5A53 ? 0x5A54 : 0x5A53, 2, d->frame_start))
+			ST->replays++;
+		else
+			ST2->hung_frames |= 1u << (ST->copies & 31);
 	} else {
 		ST->timeout2++;		/* counted as "not replayed" */
 	}
