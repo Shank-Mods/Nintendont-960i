@@ -249,7 +249,7 @@ static int wait_gpu(struct hr_data *d, u32 tok, u32 where, u32 frame_start)
 			ST2->diag_mk = mk;
 			ST2->diag_nmk = d->nmk;
 			ST2->diag_mk_off = frame_start;	/* kernel works out the offsets */
-			for (i = 0; i < 7; i++)
+			for (i = 0; i < 4; i++)
 				ST2->fs[i] = *(volatile u32 *)(0xC0000000 | (frame_start + i * 4));
 		}
 	}
@@ -399,7 +399,8 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	d->nmk = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
-	send_vertex_formats(d);
+	if (!(d->test & HR_TEST_NOVTX))
+		send_vertex_formats(d);
 	if (d->cur_main)
 		orig(0, 0, 640, 240);
 	else
@@ -466,7 +467,7 @@ void hr_copydisp(void *dest, u32 clear)
 	}
 
 	tok = PER[7];			/* the game's token, put back at the end */
-	if (!wait_gpu(d, (tok + 1) & 0xFFFF, 1, d->frame_start)) {
+	if (!wait_gpu(d, tok == HR_TOKEN_A ? HR_TOKEN_B : HR_TOKEN_A, 1, d->frame_start)) {
 		ST->skip_timeout1++;
 		goto right_blank;
 	}
@@ -522,6 +523,24 @@ void hr_copydisp(void *dest, u32 clear)
 	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
 	ppc_sync();
 
+	if (d->test & HR_TEST_IDLE) {
+		u32 t0 = mftb(), ok = 0;
+		while (mftb() - t0 < WAIT_TICKS) {
+			if (cp_get32(24) == 0 && (CPR[0] & 0x0C) == 0x0C) {
+				ok = 1;
+				break;
+			}
+		}
+		if (ok)
+			ST2->idle_ok++;
+		else
+			ST2->idle_to++;
+	}
+	if (d->test & HR_TEST_DELAY) {
+		u32 t0 = mftb();
+		while (mftb() - t0 < 40500) ;
+	}
+
 	/* Pass 2: rewind the GPU to the start of the frame */
 	en = CPR[1];
 	CPR[1] = en & ~0x0D;		/* stop reading, no watermark interrupts */
@@ -531,14 +550,15 @@ void hr_copydisp(void *dest, u32 clear)
 	cp_set32(24, ring_dist(&r, d->frame_start, wp));	/* read/write distance */
 	ppc_sync();
 	CPR[1] = (en & ~0x0C) | 1;	/* read again */
-	if (wait_gpu(d, (tok + 2) & 0xFFFF, 2, d->frame_start)) {
+	if (wait_gpu(d, tok == 0x5A53 ? 0x5A54 : 0x5A53, 2, d->frame_start)) {
 		ST->replays++;
 		CPR[2] = 3;		/* clear watermark status */
 		CPR[1] = en;
 	} else {
 		ST->timeout2++;
+		ST2->hung_frames |= 1u << (ST->copies & 31);
 		recover_gpu(en);
-		if (++d->fails >= HR_MAX_FAILS)
+		if (++d->fails >= HR_MAX_FAILS && !(d->test & HR_TEST_KEEPON))
 			d->mode = HR_MODE_LEFT;
 	}
 	bp_write(0x47000000 | tok);	/* the game's token value again */

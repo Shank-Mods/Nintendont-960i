@@ -61,6 +61,14 @@ struct hr_data {
 };
 
 #define HR_TEST_SAME	1	/* replay the frame unchanged (no right half patching) */
+#define HR_TEST_IDLE	2	/* also wait for the CP idle bits before rewinding */
+#define HR_TEST_DELAY	4	/* wait 1 ms before rewinding */
+#define HR_TEST_NOVTX	8	/* don't re-send the vertex formats in the frame prologue */
+#define HR_TEST_KEEPON	16	/* keep replaying after hung replays (no switch to Left half) */
+
+/* Our PE token values (not the game's, not markers 0xAxxx) */
+#define HR_TOKEN_A	0x5A51
+#define HR_TOKEN_B	0x5A52
 
 /* FIFO write pointer at the last 16 markers (marker n at [n & 15]) */
 #define HR_MKPOS_PPC		0xD30033C0
@@ -79,7 +87,10 @@ struct hr_stats2 {
 	unsigned int diag_mk_off;	/* ... its FIFO position - frame start */
 	unsigned int diag_nmk;		/* ... markers in that frame */
 	unsigned int recovered;		/* GPU resets after a hung replay */
-	unsigned int fs[7];		/* first 28 bytes of the frame that hung */
+	unsigned int fs[4];		/* first 16 bytes of the frame that hung */
+	unsigned int idle_ok;		/* HR_TEST_IDLE: CP idle after the first pass */
+	unsigned int idle_to;		/* ... CP not idle within 0.5 s */
+	unsigned int hung_frames;	/* replays that hung: frame number bits (copies & 31) */
 };
 
 struct hr_stats {

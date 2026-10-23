@@ -1387,7 +1387,8 @@ static void SwissVideoLogHiRes(void)
 		sync_before_read((void *)HR_STATS2_ARM, sizeof(struct hr_stats2));
 		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
 			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
-		swv_log("SwissVideo:hires: GPU resets after a hung replay %u\r\n", s2->recovered);
+		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X) | CP idle wait ok %u timeout %u\r\n",
+			s2->recovered, s2->hung_frames, s2->idle_ok, s2->idle_to);
 		if (s->diag_where == 2) {
 			const u32 *mp = (const u32 *)HR_MKPOS_ARM;
 			u32 fs = s2->diag_mk_off, n = s2->diag_mk & 0xFFF, j;
