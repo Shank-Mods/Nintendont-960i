@@ -70,7 +70,8 @@ typedef struct SWISS_CFG
 	unsigned char	ForceAnisotropy;	// Force Anisotropic Filter
 	unsigned char	ForceWidescreen;	// 0 No, 1 3D, 2 2D+3D
 	unsigned char	InvertFieldOrder;	// Nintendont addition: flip the field parity
-	unsigned char	Reserved[7];
+	unsigned char	HiRes240p;	// Nintendont experiment: 0 Off, 1 Left half, 2 Two-pass
+	unsigned char	Reserved[6];
 } SWISS_CFG;
 
 /* What the kernel uses for the game being booted. */
@@ -94,7 +95,8 @@ typedef struct SWISS_BOOT
 	unsigned char	sram60Hz;	// only meaningful when gameVMode > 0
 	unsigned char	sramProgressive;	// only meaningful when gameVMode > 0
 	unsigned char	invertFieldOrder;	// flip Swiss' forced field rendering parity
-	unsigned char	Reserved[10];
+	unsigned char	hiRes240p;	// 1280x240p experiment (HR_MODE_*), NTSC 480p path only
+	unsigned char	Reserved[9];
 } SWISS_BOOT;
 
 #endif

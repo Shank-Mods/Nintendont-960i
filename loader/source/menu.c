@@ -1727,6 +1727,7 @@ enum SwissItem
 	SWV_DITHERING,
 	SWV_ANISO,
 	SWV_WIDESCREEN,
+	SWV_HIRES,
 	SWV_COUNT
 };
 
@@ -1735,7 +1736,8 @@ static const u8 SwissItemRow[SWV_COUNT] = {
 	0,		// master switch
 	2, 3, 4, 5,	// video encoder
 	7, 8, 9, 10, 11, 12, 13,	// video mode
-	15, 16, 17, 18	// rendering
+	15, 16, 17, 18,	// rendering
+	20		// experiment
 };
 
 static const char *const SwissItemLabel[SWV_COUNT] = {
@@ -1755,6 +1757,7 @@ static const char *const SwissItemLabel[SWV_COUNT] = {
 	"Disable Dithering",
 	"Anisotropic Filter",
 	"Force Widescreen",
+	"1280x240p (exp.)",
 };
 
 /**
@@ -1812,6 +1815,8 @@ static const char *SwissItemValue(int item, char *buf, size_t size)
 		case SWV_DITHERING:	return swcfg->DisableDithering ? "Yes" : "No";
 		case SWV_ANISO:		return swcfg->ForceAnisotropy ? "Yes" : "No";
 		case SWV_WIDESCREEN:	return SwissWidescreenStr[swcfg->ForceWidescreen];
+		case SWV_HIRES:		return swcfg->HiRes240p == 2 ? "Two-pass" :
+					       swcfg->HiRes240p == 1 ? "Left half" : "Off";
 		default:		return "";
 	}
 }
@@ -1858,6 +1863,7 @@ static void SwissItemChange(int item, int dir)
 		case SWV_DITHERING:	swcfg->DisableDithering ^= 1; break;
 		case SWV_ANISO:		swcfg->ForceAnisotropy ^= 1; break;
 		case SWV_WIDESCREEN:	SwissCycle(&swcfg->ForceWidescreen, 3, dir); break;
+		case SWV_HIRES:		SwissCycle(&swcfg->HiRes240p, 3, dir); break;
 		default:		break;
 	}
 }
@@ -2067,11 +2073,31 @@ static const char *const *SwissItemDescription(int item)
 		"Wii and TV to 16:9.",
 		NULL
 	};
+	static const char *const desc_hires[] = {
+		"Experiment, not part of Swiss.",
+		"Renders NTSC games at 1280x240",
+		"and outputs 1280x240p (15 kHz,",
+		"54 MHz pixel clock). Tuned for",
+		"Kirby Air Ride.",
+		"",
+		"Left half: only the left half",
+		"  is drawn (tests the signal)",
+		"Two-pass: each frame is drawn",
+		"  twice, once per half; can",
+		"  be slower and some effects",
+		"  may be wrong in the right",
+		"  half",
+		"",
+		"Needs component + 480p. Uses",
+		"the 480p path and overrides",
+		"the video mode settings.",
+		NULL
+	};
 	static const char *const *const descs[SWV_COUNT] = {
 		desc_enabled, desc_avecompat, desc_dtvstatus, desc_rt4k,
 		desc_videoactive, desc_vmode_ntsc, desc_vmode_pal, desc_hscale,
 		desc_voffset, desc_vfilter, desc_vjitter, desc_invertfield, desc_pixelcenter,
-		desc_dithering, desc_aniso, desc_widescreen
+		desc_dithering, desc_aniso, desc_widescreen, desc_hires
 	};
 	return (item >= 0 && item < SWV_COUNT) ? descs[item] : NULL;
 }

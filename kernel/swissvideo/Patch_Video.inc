@@ -3391,4 +3391,7 @@ static void Patch_Video(u32 *data, u32 length, int dataType)
 			dbgprintf("Found:[%s] @ %08X\n", IDct10_GCSig.Name, IDct10_GC);
 		}
 	}
+#ifdef SWV_PATCH_VIDEO_EXPORT
+	SWV_PATCH_VIDEO_EXPORT();
+#endif
 }

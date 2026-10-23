@@ -24,6 +24,7 @@ Settings menu, right column: **Swiss Video** (press A) opens its own page.
 | Vertical Filter | Auto, 0, 1, 2 |
 | Field Rendering | Auto, On, Off, TAA |
 | Invert Field Order | No / Yes (not a Swiss option, see below) |
+| 1280x240p (exp.) | Off / Left half / Two-pass (experiment, see below) |
 | Fix Pixel Center | No, 1/24, 1/12 |
 | Disable Dithering | No / Yes |
 | Anisotropic Filter | No / Yes |
@@ -98,6 +99,41 @@ Low memory variables shared with the stubs live at `0x800009DC-0x800009FF`
 (`reservedarea.h`, Swiss's layout except `VAR_RMODE`). The PPC entry stub
 (`kernel/asm/FakeEntryLoad.S`) invalidates those cache lines before the game
 starts.
+
+## 1280x240p two-pass experiment (not in Swiss)
+
+Renders NTSC games at 1280x240 and outputs 1280x240p: 15.7 kHz lines at the
+54 MHz VI clock, so 1280 pixels per line fit. Built on Swiss's 480p path
+(progressive boot, encoder in 480p mode), first tuned for Kirby Air Ride.
+
+**VI** (`stubs/VIConfigure1280x240p.S`, `video_timing_1280x240p`): replaces
+Swiss's 480p mode stub. Sets `fbWidth` 1280 (the VI only uses it for the
+fetch width), `viWidth` 640 / `viXOrigin` 80 and 240 lines; the timing is
+NTSC 240p vertically (263 lines) with every horizontal value doubled
+(half-line 858, sync 127). Active window: clocks 295-1575.
+
+**GX** (`hires/`, a position independent PowerPC payload in the patch area;
+the build links it at two addresses and fails unless the blobs match):
+
+* `GXSetViewport`: a 640x480 viewport becomes 1280x240 (x doubled, y halved;
+  projection unchanged).
+* `GXSetScissor`: the full screen scissor is limited to the left 640 columns
+  (the EFB is 640 wide), followed by a scissor offset write; the FIFO write
+  pointer is recorded.
+* `GXCopyDisp`: copies the left half (copy registers in `__GXData` set to
+  640x240, 1280 pixel stride), waits until the GPU has read the FIFO, then
+  patches the frame's recorded scissors to the right half with offset 640,
+  turns the copy into a right half copy, points the CP read pointer back at
+  the start of the frame and lets the GPU run it again. A NOP run marks
+  each frame start in the FIFO.
+
+"Left half" skips the second pass (right half shows the clear colour), to
+test the signal and GX setup separately. `nin960i.log` gets counters
+(replays, skipped frames and why, FIFO size, largest frame, scissor and
+viewport values seen). Limits: needs the frame to fit in the game's FIFO;
+render-to-texture passes run again in the second pass; full screen post
+effects drawn from EFB copies will be wrong in one half; GXSetScissor must
+be found exactly once.
 
 ## Display compatibility (960i, findings from hardware testing)
 

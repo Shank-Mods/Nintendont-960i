@@ -76,6 +76,7 @@ static void SwissCfgSanitize(void)
 	swcfg->DisableDithering = !!swcfg->DisableDithering;
 	swcfg->ForceAnisotropy = !!swcfg->ForceAnisotropy;
 	swcfg->InvertFieldOrder = !!swcfg->InvertFieldOrder;
+	if (swcfg->HiRes240p > 2)			swcfg->HiRes240p = 0;
 }
 
 bool SwissCfgLoad(void)
@@ -248,6 +249,14 @@ void SwissVideoPrepareBoot(u32 BI2region, u32 GameID, bool allowed)
 
 	/* config_load_current() from here on */
 	int gameVMode = (BI2region == BI2_REGION_PAL) ? swcfg->VideoModePal : swcfg->VideoModeNtsc;
+
+	/*
+		1280x240p experiment (not in Swiss): NTSC games only, built on the
+		480p path (54 MHz progressive VI, A/V encoder in 480p mode).
+	*/
+	int hiRes = (BI2region != BI2_REGION_PAL) ? swcfg->HiRes240p : 0;
+	if (hiRes)
+		gameVMode = 5;
 	b.sramVideo = (BI2region == BI2_REGION_PAL) ? 1 /* SYS_VIDEO_PAL */ : 0 /* SYS_VIDEO_NTSC */;
 
 	if (gameVMode > 0)
@@ -318,13 +327,24 @@ void SwissVideoPrepareBoot(u32 BI2region, u32 GameID, bool allowed)
 			break;
 	}
 
+	if (hiRes && gameVMode == 5) {
+		/* options that would fight with the 1280x240p setup */
+		b.hiRes240p = hiRes;
+		b.forceVJitter = 2;		/* field rendering off */
+		b.fixPixelCenter = 0;
+		b.forceHScale = 0;
+		b.forceVOffset = 0;
+		b.forceWidescreen = 0;
+		b.invertFieldOrder = 0;
+	}
+
 	b.gameVMode = gameVMode;
 	b.Magic = SWISS_BOOT_MAGIC;
 	memcpy(swboot, &b, sizeof(b));
 	DCFlushRange(swboot, sizeof(SWISS_BOOT));
-	gprintf("SwissVideo: gameVMode %d (%s), aveCompat %s, 60Hz %d, progressive %d\r\n",
+	gprintf("SwissVideo: gameVMode %d (%s), aveCompat %s, 60Hz %d, progressive %d, 1280x240p %d\r\n",
 		b.gameVMode, SwissVModeStr[b.gameVMode], SwissAveCompatStr[b.aveCompat],
-		b.sram60Hz, b.sramProgressive);
+		b.sram60Hz, b.sramProgressive, b.hiRes240p);
 }
 
 const SWISS_BOOT *SwissVideoBootInfo(void)

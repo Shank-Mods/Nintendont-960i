@@ -40,6 +40,8 @@ GNU General Public License for more details.
 #include "SwissVideo.h"
 #include "swissvideo/reservedarea.h"
 #include "swissvideo/stubs.h"
+#include "swissvideo/hires/hires_shared.h"
+#include "swissvideo/hires/hires_payload.h"
 
 /* From Patch.c */
 extern u32 PatchCopy(const u8 *PatchPtr, const u32 PatchSize);
@@ -130,6 +132,7 @@ static struct {
 	int forceAnisotropy;
 	int forceWidescreen;
 	int invertFieldOrder;	/* Nintendont addition, see SwissVideoInvertFieldOrder() */
+	int hiRes240p;		/* Nintendont experiment, see SwissVideoHiResInstall() */
 	int aveCompat;
 	int rt4kOptim;
 	int forceDTVStatus;
@@ -328,7 +331,14 @@ static void *getPatchAddr(int patchId)
 	if (patchId < 0 || patchId >= PATCHES_MAX)
 		return NULL;
 	if (!patch_locations[patchId]) {
-		u32 phys = PatchCopy(patch_table[patchId].patch, patch_table[patchId].size);
+		const unsigned char *patch = patch_table[patchId].patch;
+		u32 size = patch_table[patchId].size;
+		/* 1280x240p experiment: its own mode stub in place of Swiss' 480p one */
+		if (patchId == VI_CONFIGURE480P && swissSettings.hiRes240p) {
+			patch = VIConfigure1280x240p;
+			size = VIConfigure1280x240p_size;
+		}
+		u32 phys = PatchCopy(patch, size);
 		patch_locations[patchId] = (void *)(0x80000000 | (phys - MEM1_BASE));
 		swv_log("SwissVideo:Installed patch %i to %08X\r\n", patchId, patch_locations[patchId]);
 	}
@@ -661,6 +671,29 @@ static void swv_log(const char *fmt, ...)
 #define dbgprintf swv_log
 
 #include "swissvideo/video_tables.inc"
+/* What Patch_Video() found, for the 1280x240p experiment */
+static u32 swv_exp_copydisp, swv_exp_viewport, swv_exp_yscale;
+static int swv_exp_copydisp_j = -1, swv_exp_viewport_j = -1, swv_exp_yscale_j = -1;
+
+static int swv_first_found(const FuncPattern *sigs, u32 count, u32 *at)
+{
+	u32 j;
+	for (j = 0; j < count; j++) {
+		if (sigs[j].offsetFoundAt) {
+			*at = sigs[j].offsetFoundAt;
+			return j;
+		}
+	}
+	*at = 0;
+	return -1;
+}
+
+#define SWV_PATCH_VIDEO_EXPORT() do { \
+	swv_exp_copydisp_j = swv_first_found(GXCopyDispSigs, countof(GXCopyDispSigs), &swv_exp_copydisp); \
+	swv_exp_viewport_j = swv_first_found(GXSetViewportSigs, countof(GXSetViewportSigs), &swv_exp_viewport); \
+	swv_exp_yscale_j = swv_first_found(GXSetDispCopyYScaleSigs, countof(GXSetDispCopyYScaleSigs), &swv_exp_yscale); \
+} while (0)
+
 #include "swissvideo/Patch_Video.inc"
 #include "swissvideo/Patch_Extras.inc"
 
@@ -908,6 +941,8 @@ static void SwissVideoSetup(void)
 	swissSettings.forceAnisotropy = b->forceAnisotropy;
 	swissSettings.forceWidescreen = b->forceWidescreen;
 	swissSettings.invertFieldOrder = b->invertFieldOrder;
+	/* The 1280x240p experiment builds on Swiss' 480p path (54 MHz, progressive) */
+	swissSettings.hiRes240p = (b->gameVMode == 5) ? b->hiRes240p : 0;
 	swissSettings.sramVideo = b->sramVideo;
 	swissSettings.sram60Hz = b->sram60Hz;
 	swissSettings.sramProgressive = b->sramProgressive;
@@ -985,6 +1020,169 @@ static void SwissVideoInvertFieldOrder(void)
 	swv_log("SwissVideo:field order inverted (VIRetraceHandlerHook @ %08X)\r\n", hook);
 }
 
+/* ------------------------------------------------------------------------ */
+/* 1280x240p two-pass experiment (Nintendont addition)                      */
+/* ------------------------------------------------------------------------ */
+
+/*
+	VI timing for 1280x240p: the vertical timing of NTSC 240p (equ 6,
+	acv 240, prb 24, psb 4, 526 half-lines = 263 lines), but at the 54 MHz
+	clock with every horizontal value doubled (half-line 858 clocks at
+	27 MHz pixels = 15.73 kHz lines). hbe640/hbs640 together with the
+	VIConfigure1280x240p stub (viWidth 640, viXOrigin 80) give an active
+	window of 1280 clocks, from clock 295 (10.9 us after sync) to 1575.
+	Horizontal sync is 127 clocks (4.7 us), the most the register holds.
+	Burst timing (hcs/hce) is the 480p one; component/RGB only.
+	Used in timing slot 6 (NTSC progressive) instead of 480p.
+*/
+static const u8 video_timing_1280x240p[38] = {
+	0x06,0x00,0x00,0xF0,	/* equ 6, acv 240 */
+	0x00,0x18,0x00,0x18,	/* prb 24/24 */
+	0x00,0x04,0x00,0x04,	/* psb 4/4 */
+	0x0C,0x0C,0x0C,0x0C,	/* bs1-4 */
+	0x02,0x08,0x02,0x08,	/* be1-2 520 */
+	0x02,0x08,0x02,0x08,	/* be3-4 520 */
+	0x02,0x0E,0x03,0x5A,	/* nhlines 526, hlw 858 */
+	0x7F,0x47,0x69,0xFF,	/* hsy 127, hcs 71, hce 105, hbe640 255 */
+	0x02,0xA5,0xF4,0x00,	/* hbs640 677, hbeCCIR656 244 */
+	0x03,0x38		/* hbsCCIR656 824 */
+};
+
+/* GXSetScissor signatures, from Swiss' Patch_Widescreen() */
+static FuncPattern hr_GXSetScissorSigs[3] = {
+	{ 44, 19, 6, 0, 0, 6, NULL, 0, "GXSetScissor" },
+	{ 36, 12, 6, 0, 0, 6, NULL, 0, "GXSetScissor" },
+	{ 30, 13, 6, 0, 0, 1, NULL, 0, "GXSetScissor" }
+};
+
+static u8 hr_data_init[sizeof(struct hr_data)];
+static u32 *hr_scissor_func;
+
+/* Can func's first instruction be moved into a trampoline? */
+static bool hr_hookable(u32 *func, const char *name)
+{
+	u32 insn;
+	if (!func) {
+		swv_log("SwissVideo:hires: %s not found\r\n", name);
+		return false;
+	}
+	insn = P2C_PTR(func)[0];
+	/* a relative branch can't be moved */
+	if ((insn & 0xFC000000) == 0x48000000 || (insn & 0xFC000000) == 0x40000000) {
+		swv_log("SwissVideo:hires: %s starts with a branch (%08X)\r\n", name, insn);
+		return false;
+	}
+	return true;
+}
+
+/* Entry hook: func's first instruction goes into tramp (+ branch back). */
+static void hr_hook(u32 *func, u32 *tramp, u32 *target, const char *name)
+{
+	u32 insn = P2C_PTR(func)[0];
+	P2C_PTR(tramp)[0] = insn;
+	P2C_PTR(tramp)[1] = branch(func + 1, tramp + 1);
+	P2C_PTR(func)[0] = branch(target, func);
+	swv_log("SwissVideo:hires: hooked %s @ %08X (first %08X)\r\n", name, func, insn);
+}
+
+/*
+	Before Patch_Video(): GXSetScissor is the one function Swiss doesn't find
+	in its video pass. Without it the experiment is off (normal 480p).
+*/
+static bool SwissVideoHiResPrepare(u32 *data, u32 length)
+{
+	u32 i, j, n = 0;
+	FuncPattern fp;
+
+	hr_scissor_func = NULL;
+	for (i = 0; i + 1 < length / sizeof(u32); i++) {
+		if ((data[i + 1] & 0xFC00FFFF) != 0x38000156)
+			continue;
+		make_pattern(data, PATCH_DOL, i, length, &fp);
+		for (j = 0; j < countof(hr_GXSetScissorSigs); j++) {
+			if (compare_pattern(&fp, &hr_GXSetScissorSigs[j])) {
+				if (!hr_scissor_func)
+					hr_scissor_func = Calc_ProperAddress(data, PATCH_DOL, i * sizeof(u32));
+				n++;
+				swv_log("Found:[%s$%i] @ %08X\r\n", hr_GXSetScissorSigs[j].Name, j,
+					Calc_ProperAddress(data, PATCH_DOL, i * sizeof(u32)));
+			}
+		}
+	}
+	if (n != 1 || !hr_hookable(hr_scissor_func, "GXSetScissor")) {
+		swv_log("SwissVideo:hires: GXSetScissor found %u times, 1280x240p off (normal 480p)\r\n", n);
+		return false;
+	}
+	return true;
+}
+
+static void SwissVideoHiResInstall(u32 *data, u32 length)
+{
+	u32 i, gxbits = 0;
+	u32 *viewport, *scissor = hr_scissor_func, *copydisp;
+	u32 payload, block;
+	struct hr_data *hd;
+	u32 *hdv;
+
+	swv_log("SwissVideo:hires: mode %i, GXCopyDisp$%i, GXSetViewport$%i, GXSetDispCopyYScale$%i\r\n",
+		swissSettings.hiRes240p, swv_exp_copydisp_j, swv_exp_viewport_j, swv_exp_yscale_j);
+	if (swv_exp_copydisp_j < 0 || swv_exp_viewport_j < 0 || swv_exp_yscale_j < 0) {
+		swv_log("SwissVideo:hires: ERROR SDK functions missing, the picture will be wrong\r\n");
+		return;
+	}
+
+	/* __GXData is loaded with lwz rX, d(rA) at these points (as Swiss does) */
+	i = swv_exp_yscale;
+	switch (swv_exp_yscale_j) {
+		case 0: gxbits = data[i + 65] & 0x1FFFFF; break;
+		case 1: gxbits = data[i + 56] & 0x1FFFFF; break;
+		case 2: gxbits = data[i + 55] & 0x1FFFFF; break;
+		case 3: case 4: case 5: case 7:
+			gxbits = data[i + 7] & 0x1FFFFF; break;
+		case 8: gxbits = data[i + 13] & 0x1FFFFF; break;
+		default: break;
+	}
+	if (!gxbits) {
+		swv_log("SwissVideo:hires: ERROR no __GXData access for this SDK, the picture will be wrong\r\n");
+		return;
+	}
+	viewport = Calc_ProperAddress(data, PATCH_DOL, swv_exp_viewport * sizeof(u32));
+	copydisp = Calc_ProperAddress(data, PATCH_DOL, swv_exp_copydisp * sizeof(u32));
+	if (!hr_hookable(viewport, "GXSetViewport") || !hr_hookable(copydisp, "GXCopyDisp")) {
+		swv_log("SwissVideo:hires: ERROR can't hook, the picture will be wrong\r\n");
+		return;
+	}
+
+	/* Payload and its state block, in the patch area */
+	payload = 0x80000000 | (PatchCopy(hires_payload, hires_payload_size) - MEM1_BASE);
+	memset(hr_data_init, 0, sizeof(hr_data_init));
+	hd = (struct hr_data *)hr_data_init;
+	hd->mode = swissSettings.hiRes240p;
+	hd->gxdata_fn[0] = 0x80600000 | gxbits;	/* lwz r3, d(rA) */
+	hd->gxdata_fn[1] = 0x4E800020;		/* blr */
+	hd->cur_l = 0; hd->cur_t = 0; hd->cur_w = 640; hd->cur_h = 480; hd->cur_main = 1;
+	block = 0x80000000 | (PatchCopy(hr_data_init, sizeof(hr_data_init)) - MEM1_BASE);
+	hdv = (u32 *)block;
+
+	hr_hook(viewport, hdv + 1, (u32 *)(payload + HR_ENTRY_VIEWPORT), "GXSetViewport");
+	hr_hook(scissor, hdv + 3, (u32 *)(payload + HR_ENTRY_SCISSOR), "GXSetScissor");
+	hr_hook(copydisp, hdv + 5, (u32 *)(payload + HR_ENTRY_COPYDISP), "GXCopyDisp");
+	sync_after_write(P2C_PTR(block), sizeof(struct hr_data));
+	sync_after_write(P2C_PTR(payload), hires_payload_size);
+
+	var_write32(HR_DATA_PTR_VAR, block);
+	sync_after_write((void *)(MEM1_BASE + (HR_DATA_PTR_VAR & ~0x1F)), 0x20);
+
+#ifndef SWISSVIDEO_HOST_TEST
+	for (i = 0; i < sizeof(struct hr_stats); i += 4)
+		write32(HR_STATS_ARM + i, 0);
+	write32(HR_STATS_ARM, HR_STATS_MAGIC);
+	sync_after_write((void *)HR_STATS_ARM, sizeof(struct hr_stats));
+#endif
+	swv_log("SwissVideo:hires: payload @ %08X (%u bytes), data @ %08X, __GXData lwz %08X\r\n",
+		payload, hires_payload_size, block, hd->gxdata_fn[0]);
+}
+
 void SwissVideoPatch(char *Buffer, u32 Length)
 {
 	Length &= ~3;
@@ -1016,7 +1214,21 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	swv_base = (u32)Buffer;
 	swv_length = Length;
 
+	/* 1280x240p: our timing in the NTSC progressive slot (restored after) */
+	u8 saved_timing[38];
+	if (swissSettings.hiRes240p && !SwissVideoHiResPrepare((u32 *)Buffer, Length))
+		swissSettings.hiRes240p = 0;
+	if (swissSettings.hiRes240p) {
+		memcpy(saved_timing, video_timing + 6 * 38, 38);
+		memcpy(video_timing + 6 * 38, video_timing_1280x240p, 38);
+		swv_log_timing("1280x240p", video_timing + 6 * 38);
+	}
+
 	Patch_Video((u32 *)Buffer, Length, PATCH_DOL);
+	if (swissSettings.hiRes240p) {
+		memcpy(video_timing + 6 * 38, saved_timing, 38);
+		SwissVideoHiResInstall((u32 *)Buffer, Length);
+	}
 	/* Same order as Swiss' Patch_ExecutableFile() */
 	if (swissSettings.forceWidescreen)
 		Patch_Widescreen((u32 *)Buffer, Length, PATCH_DOL);
@@ -1046,6 +1258,28 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 #define VI_LOG_MAX		10
 
 extern bool DI_IRQ;
+
+/* 1280x240p experiment counters (written by the payload, see hires_shared.h) */
+static void SwissVideoLogHiRes(void)
+{
+	const struct hr_stats *s = (const struct hr_stats *)HR_STATS_ARM;
+	if (!swissSettings.hiRes240p)
+		return;
+	sync_before_read((void *)HR_STATS_ARM, sizeof(struct hr_stats));
+	if (s->magic != HR_STATS_MAGIC) {
+		swv_log("SwissVideo:hires: no counters (payload not running)\r\n");
+		return;
+	}
+	swv_log("SwissVideo:hires: copies %u replays %u | skip first %u big %u overwritten %u nocopy %u timeout %u | timeout2 %u\r\n",
+		s->copies, s->replays, s->skip_first, s->skip_big, s->skip_overwritten,
+		s->skip_nocopy, s->skip_timeout1, s->timeout2);
+	swv_log("SwissVideo:hires: fifo %08X size %u, frame %u max %u bytes, scissors patched %u lost %u\r\n",
+		s->fifo_base, s->fifo_size, s->last_frame, s->max_frame, s->last_patched, s->sc_lost);
+	swv_log("SwissVideo:hires: GXSetScissor calls %u full %u last %u,%u %ux%u | viewport %08X x %08X | copy regs ok %u bad %u (size %08X)\r\n",
+		s->sc_calls, s->sc_main, s->last_sc_lt >> 16, s->last_sc_lt & 0xFFFF,
+		s->last_sc_wh >> 16, s->last_sc_wh & 0xFFFF, s->vp_w, s->vp_h,
+		s->gxdata_ok, s->gxdata_bad, s->last_disp_size);
+}
 
 static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;
 
@@ -1098,6 +1332,7 @@ void SwissVideoLogVI(void)
 			read16(VI_SNAPSHOT + i + 0x8), read16(VI_SNAPSHOT + i + 0xA),
 			read16(VI_SNAPSHOT + i + 0xC), read16(VI_SNAPSHOT + i + 0xE));
 	}
+	SwissVideoLogHiRes();
 	viLogPending = 1;
 }
 

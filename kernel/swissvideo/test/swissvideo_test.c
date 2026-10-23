@@ -13,7 +13,7 @@
 	loader passes for 960i with everything else on Auto; name=value pairs
 	(decimal, Swiss numbering) change them:
 		vmode ave dtv rt4k active hscale voffset vfilter vjitter
-		pixel dither aniso wide invert prog 60hz
+		pixel dither aniso wide invert hires prog 60hz
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +49,7 @@ static void set_option(const char *opt)
 	else if (!strcmp(name, "aniso")) b->forceAnisotropy = v;
 	else if (!strcmp(name, "wide")) b->forceWidescreen = v;
 	else if (!strcmp(name, "invert")) b->invertFieldOrder = v;
+	else if (!strcmp(name, "hires")) b->hiRes240p = v;
 	else if (!strcmp(name, "prog")) b->sramProgressive = v;
 	else if (!strcmp(name, "60hz")) b->sram60Hz = v;
 	else { fprintf(stderr, "unknown option %s\n", name); exit(1); }

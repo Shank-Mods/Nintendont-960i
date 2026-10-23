@@ -63,6 +63,14 @@ rendered for. Try it if a game looks combed or shimmery with field
 rendering on (960i, or Field Rendering On/TAA), as if its fields were
 swapped. If it helps, please report the game.
 
+"1280x240p (exp.)" is an experiment for NTSC games (made for Kirby Air
+Ride): the game is drawn at 1280x240 and sent as 1280x240p (240p with
+twice the usual horizontal pixels). It needs component cables with 480p
+enabled and overrides the video mode settings. "Left half" only draws the
+left half (to test whether your display takes the signal); "Two-pass"
+draws each frame twice, once per half. Please send nin960i.log with any
+report.
+
 While "Swiss Video Patches" is On, Nintendont's own video options (Force
 Progressive, Video Mode, Video Width, Screen Position) are ignored. Turn it
 Off to use Nintendont normally.

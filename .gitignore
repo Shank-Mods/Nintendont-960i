@@ -11,5 +11,9 @@ nintendont/boot.dol
 fatfs/*.a
 codehandler/*.h
 kernel/swissvideo/stubs/*.h
+kernel/swissvideo/hires/*.o
+kernel/swissvideo/hires/*.elf
+kernel/swissvideo/hires/*.bin
+kernel/swissvideo/hires/hires_payload.h
 kernel/swissvideo/test/swissvideo_test
 out/

@@ -75,6 +75,11 @@ for l in func:
 
 out[0] = 'static void Patch_Video(u32 *data, u32 length, int dataType)'
 
+# 6. Let SwissVideo.c look at what Patch_Video() found (its signature tables
+#    are static locals), e.g. for the 1280x240p experiment.
+assert out[-1] == '}'
+out[-1:] = ['#ifdef SWV_PATCH_VIDEO_EXPORT', '\tSWV_PATCH_VIDEO_EXPORT();', '#endif', '}']
+
 
 # --- Patch_Widescreen() / Patch_TexFilt() ------------------------------------
 def port_extra(proto):

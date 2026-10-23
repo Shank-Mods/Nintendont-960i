@@ -32,6 +32,7 @@
 #include "stubs/VIConfigure1080i50.h"
 #include "stubs/VIConfigure1080i60.h"
 #include "stubs/VIConfigure1152i.h"
+#include "stubs/VIConfigure1280x240p.h"
 #include "stubs/VIConfigure240p.h"
 #include "stubs/VIConfigure288p.h"
 #include "stubs/VIConfigure480i.h"
