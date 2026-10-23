@@ -182,7 +182,16 @@ static int wait_cp_idle(void)
 */
 static void fix_copy_regs(struct hr_data *d)
 {
-	volatile u32 *f = (volatile u32 *)((u8 *)((gxdata_fn)d->gxdata_fn)() + 480);
+	u32 g = (u32)((gxdata_fn)d->gxdata_fn)();
+	volatile u32 *f;
+
+	/* must be a cached MEM1 address, or the lookup is wrong */
+	if (g < 0x80000000 || g >= 0x81800000 - 0x400 || (g & 3)) {
+		ST->last_disp_size = g;
+		ST->gxdata_bad++;
+		return;
+	}
+	f = (volatile u32 *)(g + 480);
 	ST->last_disp_size = f[1];
 	if ((f[0] >> 24) == 0x49 && (f[1] >> 24) == 0x4A && (f[2] >> 24) == 0x4D) {
 		f[0] = 0x49000000;		/* left 0, top 0 */

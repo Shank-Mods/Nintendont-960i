@@ -1057,6 +1057,14 @@ static FuncPattern hr_GXSetScissorSigs[3] = {
 
 static u8 hr_data_init[sizeof(struct hr_data)];
 static u32 *hr_scissor_func;
+static u32 hr_gxdata_bits;	/* rA/d of an lwz that loads __GXData */
+
+/* Is insn "lwz rX, d(r2)" or "lwz rX, d(r13)", i.e. a load of an SDA pointer? */
+static bool hr_is_sda_lwz(u32 insn)
+{
+	u32 ra = (insn >> 16) & 0x1F;
+	return (insn & 0xFC000000) == 0x80000000 && (ra == 2 || ra == 13);
+}
 
 /* Can func's first instruction be moved into a trampoline? */
 static bool hr_hookable(u32 *func, const char *name)
@@ -1113,6 +1121,24 @@ static bool SwissVideoHiResPrepare(u32 *data, u32 length)
 		swv_log("SwissVideo:hires: GXSetScissor found %u times, 1280x240p off (normal 480p)\r\n", n);
 		return false;
 	}
+	/*
+		GXSetScissor works on __GXData->suScis0/1 right away, so one of its
+		first instructions loads the __GXData pointer from the small data
+		area (lwz rX, d(r2) in Kirby Air Ride: 8102F070).
+	*/
+	hr_gxdata_bits = 0;
+	for (i = 0; i < 8; i++) {
+		u32 insn = P2C_PTR(hr_scissor_func)[i];
+		if (hr_is_sda_lwz(insn)) {
+			hr_gxdata_bits = insn & 0x1FFFFF;
+			swv_log("SwissVideo:hires: __GXData load in GXSetScissor+%u: %08X\r\n", i * 4, insn);
+			break;
+		}
+	}
+	if (!hr_gxdata_bits) {
+		swv_log("SwissVideo:hires: no __GXData load in GXSetScissor, 1280x240p off (normal 480p)\r\n");
+		return false;
+	}
 	return true;
 }
 
@@ -1126,26 +1152,14 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 
 	swv_log("SwissVideo:hires: mode %i, GXCopyDisp$%i, GXSetViewport$%i, GXSetDispCopyYScale$%i\r\n",
 		swissSettings.hiRes240p, swv_exp_copydisp_j, swv_exp_viewport_j, swv_exp_yscale_j);
-	if (swv_exp_copydisp_j < 0 || swv_exp_viewport_j < 0 || swv_exp_yscale_j < 0) {
+	if (swv_exp_copydisp_j < 0 || swv_exp_viewport_j < 0) {
 		swv_log("SwissVideo:hires: ERROR SDK functions missing, the picture will be wrong\r\n");
 		return;
 	}
 
-	/* __GXData is loaded with lwz rX, d(rA) at these points (as Swiss does) */
-	i = swv_exp_yscale;
-	switch (swv_exp_yscale_j) {
-		case 0: gxbits = data[i + 65] & 0x1FFFFF; break;
-		case 1: gxbits = data[i + 56] & 0x1FFFFF; break;
-		case 2: gxbits = data[i + 55] & 0x1FFFFF; break;
-		case 3: case 4: case 5: case 7:
-			gxbits = data[i + 7] & 0x1FFFFF; break;
-		case 8: gxbits = data[i + 13] & 0x1FFFFF; break;
-		default: break;
-	}
-	if (!gxbits) {
-		swv_log("SwissVideo:hires: ERROR no __GXData access for this SDK, the picture will be wrong\r\n");
-		return;
-	}
+	/* __GXData pointer load, found in GXSetScissor (SwissVideoHiResPrepare) */
+	gxbits = hr_gxdata_bits;
+	(void)i;
 	viewport = Calc_ProperAddress(data, PATCH_DOL, swv_exp_viewport * sizeof(u32));
 	copydisp = Calc_ProperAddress(data, PATCH_DOL, swv_exp_copydisp * sizeof(u32));
 	if (!hr_hookable(viewport, "GXSetViewport") || !hr_hookable(copydisp, "GXCopyDisp")) {
