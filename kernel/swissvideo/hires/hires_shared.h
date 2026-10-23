@@ -14,6 +14,17 @@
 #define HR_STATS_ARM		0x13003280
 #define HR_STATS_MAGIC		0x48524553	/* 'HRES' */
 
+/*
+	Game state snapshot taken by PADRead (loader/source/ppc/PADReadGC) for
+	the log, 0x40 bytes: [0] current thread, [1] PADRead calls,
+	[2] CP status << 16 | control, [3] CP read/write distance,
+	[4] CP read pointer, [5] CP write pointer, [6] PE token << 16 |
+	PE interrupt status, [7] thread that draws (main_thread),
+	[8..9] its saved srr0 / lr, [10..15] return addresses on its stack.
+*/
+#define HR_GAMESNAP_PPC		0xD3003300
+#define HR_GAMESNAP_ARM		0x13003300
+
 /* More counters (0x40 bytes) */
 #define HR_STATS2_PPC		0xD3003380
 #define HR_STATS2_ARM		0x13003380
@@ -76,7 +87,8 @@ struct hr_stats2 {
 	unsigned int dl_bytes;		/* bytes copied */
 	unsigned int dl_max;		/* largest list copied */
 	unsigned int dl_big;		/* largest list called */
-	unsigned int unused0, unused1;
+	unsigned int main_thread;	/* OSThread that calls GXCopyDisp (0x800000E4) */
+	unsigned int unused1;
 	unsigned int diag_nmk;		/* first timeout: markers in that frame */
 	unsigned int recovered;		/* GPU resets after a hung replay */
 	unsigned int vp_shifted;	/* viewports moved for second passes */

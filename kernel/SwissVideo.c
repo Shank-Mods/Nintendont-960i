@@ -1278,6 +1278,9 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 	for (i = 0; i < sizeof(struct hr_stats2); i += 4)
 		write32(HR_STATS2_ARM + i, 0);
 	sync_after_write((void *)HR_STATS2_ARM, sizeof(struct hr_stats2));
+	for (i = 0; i < 0x40; i += 4)
+		write32(HR_GAMESNAP_ARM + i, 0);
+	sync_after_write((void *)HR_GAMESNAP_ARM, 0x40);
 #endif
 	swv_log("SwissVideo:hires: payload @ %08X (%u bytes), data @ %08X, __GXData lwz %08X\r\n",
 		payload, hires_payload_size, block, hd->gxdata_fn[0]);
@@ -1392,6 +1395,14 @@ static void SwissVideoLogHiRes(void)
 		if (s->diag_where)
 			swv_log("SwissVideo:hires: first timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X, %u markers\r\n",
 				s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok, s2->diag_nmk);
+	}
+	{
+		const u32 *g = (const u32 *)HR_GAMESNAP_ARM;
+		sync_before_read((void *)HR_GAMESNAP_ARM, 0x40);
+		swv_log("SwissVideo:hires: PADRead #%u thread %08X | CP %08X dist %u rp %08X wp %08X | PE token/irq %08X\r\n",
+			g[1], g[0], g[2], g[3], g[4], g[5], g[6]);
+		swv_log("SwissVideo:hires: drawing thread %08X srr0 %08X lr %08X stack %08X %08X %08X %08X %08X %08X\r\n",
+			g[7], g[8], g[9], g[10], g[11], g[12], g[13], g[14], g[15]);
 	}
 }
 

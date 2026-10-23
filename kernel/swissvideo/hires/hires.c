@@ -408,6 +408,7 @@ void hr_copydisp(void *dest, u32 clear)
 	r.size = (cp_get32(18) & 0x3FFFFFFF) + 4 - r.base;
 	ST->magic = HR_STATS_MAGIC;
 	ST->copies++;
+	ST2->main_thread = *(volatile u32 *)0x800000E4;
 	ST->fifo_base = r.base;
 	ST->fifo_size = r.size;
 

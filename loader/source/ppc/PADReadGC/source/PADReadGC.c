@@ -113,6 +113,41 @@ u32 PADRead(u32 calledByGame)
 		u32 viReg;
 		for(viReg = 0; viReg < 0x20; ++viReg)
 			viDst[viReg] = ((u32)viSrc[viReg*2] << 16) | viSrc[viReg*2+1];
+
+		/* 1280x240p experiment: where is the drawing thread? (layout in
+		   kernel/swissvideo/hires/hires_shared.h, HR_GAMESNAP) */
+		if(((SWISS_BOOT*)SWISS_BOOT_ADDR_PPC)->hiRes240p)
+		{
+			vu32 *g = (vu32*)0xD3003300;
+			vu16 *cp = (vu16*)0xCC000000;
+			vu16 *pe = (vu16*)0xCC001000;
+			u32 th = *(vu32*)0xD3003394;	/* hr_stats2.main_thread */
+			u32 k, sp;
+			g[0] = *(vu32*)0x800000E4;
+			g[1] = g[1] + 1;
+			g[2] = ((u32)cp[0] << 16) | cp[1];
+			g[3] = ((u32)cp[25] << 16) | cp[24];
+			g[4] = ((u32)cp[29] << 16) | cp[28];
+			g[5] = ((u32)cp[27] << 16) | cp[26];
+			g[6] = ((u32)pe[7] << 16) | pe[5];
+			g[7] = th;
+			if(th >= 0x80000000 && th < 0x81800000 && th != g[0])
+			{
+				/* OSContext: gpr[1] at +4, lr +0x84, srr0 +0x198 */
+				g[8] = *(vu32*)(th + 0x198);
+				g[9] = *(vu32*)(th + 0x84);
+				sp = *(vu32*)(th + 4);
+				for(k = 0; k < 6; ++k)
+				{
+					if(sp < 0x80000000 || sp >= 0x81800000 || (sp & 3))
+						break;
+					sp = *(vu32*)sp;	/* back chain */
+					if(sp < 0x80000000 || sp >= 0x81800000 || (sp & 3))
+						break;
+					g[10 + k] = *(vu32*)(sp + 4);	/* saved LR */
+				}
+			}
+		}
 	}
 
 	u32 WiiUGamepadSlot = ((NIN_CFG*)0x93004000)->WiiUGamepadSlot;
