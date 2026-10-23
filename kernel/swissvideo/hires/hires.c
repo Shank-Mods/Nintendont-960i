@@ -466,14 +466,15 @@ void hr_copydisp(void *dest, u32 clear)
 
 	/* Patch the frame for the right half */
 	patched = 0;
-	if (!(d->test & HR_TEST_SAME)) {
+	if (!(d->test & (HR_TEST_SAME | HR_TEST_NOSC))) {
 		for (i = 0; i < nfound; i++) {
 			set_scissor_tile1(&r, found[i]);
 			patched++;
 		}
-		bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
 		ST2->vp_shifted += shift_viewports(&r, d->frame_start, dist);
 	}
+	if (!(d->test & (HR_TEST_SAME | HR_TEST_NOCOPY)))
+		bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
 	ST->last_patched = patched;
 	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
 	ppc_sync();

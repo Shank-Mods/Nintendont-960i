@@ -39,6 +39,13 @@
 # Works (left half picture, game runs) -> the right half changes are.
 #hrtest=1
 #
+# --- T6: right half replay, but the copy still goes to the left half
+# (scissor + viewport changes only)
+#hrtest=48
+# --- T7: right half copy only (scissor + viewport unchanged; the right
+# half should show the left half's picture again)
+#hrtest=80
+#
 # --- R1: picture window narrowed to 720 clocks (normal 480p width)
 # Picture (or bars) on the left part of the screen -> the encoder
 # blanks windows wider than 720 clocks.

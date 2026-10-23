@@ -57,6 +57,8 @@ struct hr_data {
 
 #define HR_TEST_SAME	1	/* replay the frame unchanged (no right half patching) */
 #define HR_TEST_KEEPON	16	/* keep replaying after hung replays (no switch to Left half) */
+#define HR_TEST_NOCOPY	32	/* second pass: don't move the copy to the right half */
+#define HR_TEST_NOSC	64	/* second pass: don't move scissors / viewports */
 
 /* Our PE token values (not the game's, not markers 0xAxxx) */
 #define HR_TOKEN_A	0x5A51
