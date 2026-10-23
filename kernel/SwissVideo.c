@@ -747,6 +747,8 @@ static void swv_log_timing(const char *what, const u8 *t)
 	swv_log("SwissVideo:%s equ %u acv %u prb %u/%u psb %u/%u nhlines %u hlw %u\r\n", what,
 		equ, acv, swv_get(t, 2), swv_get(t, 3), swv_get(t, 4), swv_get(t, 5),
 		swv_get(t, 14), swv_get(t, 15));
+	swv_log("SwissVideo:%s hsy %u hcs %u hce %u hbe640 %u hbs640 %u\r\n", what,
+		t[28], t[29], t[30], t[31], swv_get(t, 20));
 	swv_log("SwissVideo:%s frame length odd %u / even %u half-lines\r\n", what,
 		3 * equ + swv_get(t, 2) + 2 * acv + swv_get(t, 4),
 		3 * equ + swv_get(t, 3) + 2 * acv + swv_get(t, 5));
@@ -756,6 +758,7 @@ static void swv_log_timing(const char *what, const u8 *t)
 static s32 swv_ovr_vmode, swv_ovr_vjitter, swv_ovr_vfilter, swv_ovr_avecompat;
 static s32 swv_ovr_swiss;	/* 0 = don't apply the Swiss patches (baseline) */
 static s32 swv_ovr_timing[countof(swv_timing_fields)];
+static s32 swv_ovr_hr_timing[countof(swv_timing_fields)];	/* hr_<field>: 1280x240p */
 
 static void swv_apply_setting(const char *name, u32 n)
 {
@@ -767,9 +770,15 @@ static void swv_apply_setting(const char *name, u32 n)
 	else if (strcmp(name, "forcevfilter") == 0) swv_ovr_vfilter = n;
 	else if (strcmp(name, "avecompat") == 0)    swv_ovr_avecompat = n;
 	else {
+		s32 *ovr = swv_ovr_timing;
+		const char *field = name;
+		if (name[0] == 'h' && name[1] == 'r' && name[2] == '_') {
+			ovr = swv_ovr_hr_timing;
+			field = name + 3;
+		}
 		for (j = 0; j < countof(swv_timing_fields); j++) {
-			if (strcmp(name, swv_timing_fields[j].name) == 0) {
-				swv_ovr_timing[j] = n;
+			if (strcmp(field, swv_timing_fields[j].name) == 0) {
+				ovr[j] = n;
 				break;
 			}
 		}
@@ -793,7 +802,7 @@ static void SwissVideoReadSettings(void)
 
 	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
-		swv_ovr_timing[i] = -1;
+		swv_ovr_timing[i] = swv_ovr_hr_timing[i] = -1;
 
 #ifndef NIN960I_EXPERIMENTS
 	/* Release/test builds: fixed Swiss 960i settings, no settings file */
@@ -847,31 +856,31 @@ static void SwissVideoReadSettings(void)
 	u32 i;
 	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
-		swv_ovr_timing[i] = -1;
+		swv_ovr_timing[i] = swv_ovr_hr_timing[i] = -1;
 }
 #endif
 
-static void SwissVideoTimingOverrides(void)
+static void SwissVideoTimingOverridesTo(u8 *t, const s32 *ovr)
 {
-	u8 *t;
 	u32 j, any = 0;
-
-	if (swissSettings.gameVMode == 4)
-		t = video_timing_960i;
-	else if (swissSettings.gameVMode == 11)
-		t = video_timing_1152i;
-	else
-		return;
 
 	swv_log_timing("default", t);
 	for (j = 0; j < countof(swv_timing_fields); j++) {
-		if (swv_ovr_timing[j] >= 0) {
-			swv_set(t, j, swv_ovr_timing[j]);
+		if (ovr[j] >= 0) {
+			swv_set(t, j, ovr[j]);
 			any = 1;
 		}
 	}
 	if (any)
 		swv_log_timing("override", t);
+}
+
+static void SwissVideoTimingOverrides(void)
+{
+	if (swissSettings.gameVMode == 4)
+		SwissVideoTimingOverridesTo(video_timing_960i, swv_ovr_timing);
+	else if (swissSettings.gameVMode == 11)
+		SwissVideoTimingOverridesTo(video_timing_1152i, swv_ovr_timing);
 }
 
 /*
@@ -1235,7 +1244,8 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 	if (swissSettings.hiRes240p) {
 		memcpy(saved_timing, video_timing + 6 * 38, 38);
 		memcpy(video_timing + 6 * 38, video_timing_1280x240p, 38);
-		swv_log_timing("1280x240p", video_timing + 6 * 38);
+		/* experiments build: hr_<field> lines of /nin960i_vi.txt */
+		SwissVideoTimingOverridesTo(video_timing + 6 * 38, swv_ovr_hr_timing);
 	}
 
 	Patch_Video((u32 *)Buffer, Length, PATCH_DOL);

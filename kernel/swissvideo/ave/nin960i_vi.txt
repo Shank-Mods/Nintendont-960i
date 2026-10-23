@@ -24,6 +24,35 @@
 # Frame length in half-lines = 3*equ + prb + 2*acv + psb
 # ---------------------------------------------------------------------
 #
+# =====================================================================
+# 1280x240p experiment (Swiss Video page: "1280x240p (exp.)" = Left half)
+# These use the hr_ prefix and only change the 1280x240p timing.
+# Default: equ=6 acv=240 prbodd/even=24 psbodd/even=4 nhlines=526
+#   hlw=858 hsy=127 hbe640=255 hbs640=677 (picture clocks 295-1575)
+# Tip: put 00=01 in nin960i_ave.txt too. Its color bars come from the
+# encoder itself, so they show whether the encoder outputs a picture
+# at all, whatever the game draws.
+# Enable ONE of R1-R3 at a time.
+#
+# --- R1: picture window narrowed to 720 clocks (normal 480p width)
+# Picture (or bars) on the left part of the screen -> the encoder
+# blanks windows wider than 720 clocks.
+#hr_hbs640=117
+#
+# --- R2: 525-line frame (480p line count, 30 frames/s, 240 lines shown)
+# The monitor may not like 30 Hz. Picture or bars -> the encoder counts
+# lines and blanks frames that are not 525 lines long.
+#hr_psbodd=528
+#hr_psbeven=528
+#hr_nhlines=1050
+#
+# --- R3: R1 and R2 together
+#hr_hbs640=117
+#hr_psbodd=528
+#hr_psbeven=528
+#hr_nhlines=1050
+# =====================================================================
+#
 # --- Experiment H: BASELINE, no Swiss patches at all (960i must be ON)
 # The game's own video code runs, the video registers are still logged.
 # Answer "yes" to the progressive scan question so it runs in 480p.

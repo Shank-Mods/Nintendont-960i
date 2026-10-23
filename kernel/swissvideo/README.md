@@ -177,7 +177,8 @@ from the root of the boot device (templates in `ave/`):
 * `nin960i_vi.txt`: Swiss settings (`gamevmode`, `forcevjitter`,
   `forcevfilter`, `avecompat`, `swiss=0` for a baseline) and 960i timing
   fields (`equ`, `prbodd`, `psbodd`, `nhlines`, ...). These override the
-  settings page.
+  settings page. With the `hr_` prefix (`hr_hbs640=117`) the fields change
+  the 1280x240p timing instead.
 * `nin960i_ave.txt`: raw AVE-RVL register writes (`RR=VV`). Register 00 bit 0
   shows the encoder's color bar test pattern; `01=23` is RVLoader's VGA mode.
 
