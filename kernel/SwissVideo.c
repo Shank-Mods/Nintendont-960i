@@ -1275,9 +1275,9 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 		write32(HR_STATS_ARM + i, 0);
 	write32(HR_STATS_ARM, HR_STATS_MAGIC);
 	sync_after_write((void *)HR_STATS_ARM, sizeof(struct hr_stats));
-	for (i = 0; i < 0x100; i += 4)
-		write32(HR_DUMP_ARM + i, 0);	/* dump, stats2, marker positions */
-	sync_after_write((void *)HR_DUMP_ARM, 0x100);
+	for (i = 0; i < sizeof(struct hr_stats2); i += 4)
+		write32(HR_STATS2_ARM + i, 0);
+	sync_after_write((void *)HR_STATS2_ARM, sizeof(struct hr_stats2));
 #endif
 	swv_log("SwissVideo:hires: payload @ %08X (%u bytes), data @ %08X, __GXData lwz %08X\r\n",
 		payload, hires_payload_size, block, hd->gxdata_fn[0]);
@@ -1380,40 +1380,18 @@ static void SwissVideoLogHiRes(void)
 		s->sc_calls, s->sc_main, s->last_sc_lt >> 16, s->last_sc_lt & 0xFFFF,
 		s->last_sc_wh >> 16, s->last_sc_wh & 0xFFFF, s->vp_w, s->vp_h,
 		s->gxdata_ok, s->gxdata_bad, s->last_disp_size);
-	swv_log("SwissVideo:hires: draw done/token interrupts removed from replays %u | vertex formats re-sent %u bad %u\r\n",
-		s->pe_nopped, s->vtx_ok, s->vtx_bad);
 	{
 		const struct hr_stats2 *s2 = (const struct hr_stats2 *)HR_STATS2_ARM;
 		sync_before_read((void *)HR_STATS2_ARM, sizeof(struct hr_stats2));
+		swv_log("SwissVideo:hires: draw done/token interrupts removed %u | viewports moved %u\r\n",
+			s->pe_nopped, s2->vp_shifted);
 		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
 			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
-		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X) | CP idle wait ok %u timeout %u\r\n",
-			s2->recovered, s2->hung_frames, s2->idle_ok, s2->idle_to);
-		if (s->diag_where == 2) {
-			const u32 *mp = (const u32 *)HR_MKPOS_ARM;
-			u32 fs = s2->diag_mk_off, n = s2->diag_mk & 0xFFF, j;
-			sync_before_read((void *)HR_MKPOS_ARM, 0x40);
-			swv_log("SwissVideo:hires: hung frame @ %08X: last marker passed %04X of %u | start %08X %08X %08X %08X\r\n",
-				fs, s2->diag_mk, s2->diag_nmk, s2->fs[0], s2->fs[1], s2->fs[2], s2->fs[3]);
-			if ((s2->diag_mk & 0xF000) == HR_MARKER && s2->diag_nmk && n < s2->diag_nmk) {
-				for (j = (n >= 3 ? n - 3 : 0); j < s2->diag_nmk && j <= n + 3; j++)
-					if (j + 16 >= s2->diag_nmk)
-						swv_log("SwissVideo:hires:   marker %u at frame +%d%s\r\n", j,
-							(s32)(mp[j & 15] - fs), j == n ? " <- last passed" : "");
-			}
-		}
-	}
-	if (s->diag_where) {
-		const u32 *dmp = (const u32 *)HR_DUMP_ARM;
-		u32 i;
-		swv_log("SwissVideo:hires: first timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X\r\n",
-			s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok);
-		sync_before_read((void *)HR_DUMP_ARM, 0x80);
-		if (dmp[1] == HR_DUMP_WORDS * 4) {
-			for (i = 0; i < HR_DUMP_WORDS; i += 6)
-				swv_log("SwissVideo:hires: fifo %08X: %08X %08X %08X %08X %08X %08X\r\n",
-					dmp[0] + i * 4, dmp[2 + i], dmp[3 + i], dmp[4 + i], dmp[5 + i], dmp[6 + i], dmp[7 + i]);
-		}
+		swv_log("SwissVideo:hires: GPU resets after a hung replay %u (frames mod 32: %08X)\r\n",
+			s2->recovered, s2->hung_frames);
+		if (s->diag_where)
+			swv_log("SwissVideo:hires: first timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X, %u markers\r\n",
+				s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok, s2->diag_nmk);
 	}
 }
 

@@ -6,9 +6,13 @@
 	the scissor limited to the left 640 columns (the EFB is only 640 wide).
 	At GXCopyDisp the left half is copied into the framebuffer (1280 pixels
 	per line), then the frame's GPU commands, which are still in the FIFO,
-	are run a second time with the scissor moved to the right half and a
-	scissor offset of 640, which maps the right half onto the EFB. The copy
-	at the end of that second pass goes to the right half of the framebuffer.
+	are run a second time for the right half. The copy at the end of that
+	second pass goes to the right half of the framebuffer.
+
+	Shifting the picture by 640 with the scissor offset alone hung the GPU
+	(GXSetScissorBoxOffset allows -342..382), so the second pass moves it by
+	300 with the viewports (GXSetViewport allows a left edge down to -342)
+	and by 340 with the scissor offset.
 
 	Position independent and without globals: all state lives in struct
 	hr_data, whose address the kernel stores at 0x80000000 + HR_DATA_PTR_VAR.
@@ -22,7 +26,6 @@ typedef unsigned char u8;
 
 #define HR	((struct hr_data *)(*(volatile u32 *)(0x80000000 | HR_DATA_PTR_VAR)))
 #define ST	((volatile struct hr_stats *)HR_STATS_PPC)
-#define DUMP	((volatile u32 *)HR_DUMP_PPC)	/* [0] address, [1] bytes, [2..] data */
 #define ST2	((volatile struct hr_stats2 *)HR_STATS2_PPC)
 
 #define CPR	((volatile u16 *)0xCC000000)	/* command processor */
@@ -38,14 +41,15 @@ typedef unsigned char u8;
 	Full screen scissor as the GPU sees it (GXSetScissor adds 342 to all
 	coordinates), followed by our scissor offset write:
 	tile 0: box (0,0)-(639,239), offset 0
-	tile 1: box (640,0)-(1279,239), offset 640
+	tile 1 (viewports moved left by 300): box (340,0)-(979,239), offset 340
 */
 #define BP_SCIS0_T0	0x20156156	/* top 342, left 342 */
 #define BP_SCIS1_T0	0x213D5245	/* bottom 581, right 981 */
 #define BP_SCOFF_T0	0x5902ACAB	/* (0+342)/2, (0+342)/2 */
-#define BP_SCIS0_T1	0x203D6156	/* top 342, left 982 */
-#define BP_SCIS1_T1	0x21655245	/* bottom 581, right 1621 */
-#define BP_SCOFF_T1	0x5902ADEB	/* (640+342)/2, (0+342)/2 */
+#define BP_SCIS0_T1	0x202AA156	/* top 342, left 682 */
+#define BP_SCIS1_T1	0x21529245	/* bottom 581, right 1321 */
+#define BP_SCOFF_T1	0x5902AD55	/* (340+342)/2, (0+342)/2 */
+#define VP_SHIFT_BITS	0x43960000	/* 300.0f */
 
 /* Timeouts in time base ticks (40.5 MHz in GameCube mode): 0.5 s */
 #define WAIT_TICKS	20250000
@@ -63,13 +67,6 @@ static inline void ppc_sync(void)
 static inline void bp_write(u32 v)
 {
 	WGP8 = 0x61;
-	WGP32 = v;
-}
-
-static inline void cp_write(u8 reg, u32 v)
-{
-	WGP8 = 0x08;
-	WGP8 = reg;
 	WGP32 = v;
 }
 
@@ -180,17 +177,15 @@ static u32 find_scissor(const struct ring *r, u32 p, u32 window)
 	for that frame. Run twice, they raise a second "draw done" / token
 	interrupt, and the game's callbacks (framebuffer queues) see a frame
 	finish twice. Pass 1 has already run them, so they are replaced by
-	NOPs (opcode 00) for the replay. Only the start of the frame is searched.
+	NOPs (opcode 00) for the replay.
 */
-#define PE_SCAN_WINDOW	16384
 
 static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len)
 {
 	u32 i, j, q, n = 0;
 	u8 reg;
 
-	/* whole frame; exact values: draw done 45 000002, token interrupt 48 00xxxx */
-	(void)PE_SCAN_WINDOW;
+	/* exact values: draw done 45 000002, token interrupt 48 00xxxx */
 	for (i = 0; i + 5 <= len; i++) {
 		q = ring_add(r, p, i);
 		if (ring_rd(r, q, 0) != 0x61)
@@ -208,6 +203,35 @@ static u32 nop_pe_interrupts(const struct ring *r, u32 p, u32 len)
 			ring_wr(r, q, j, 0);
 		n++;
 		i += 4;
+	}
+	return n;
+}
+
+/*
+	Second pass: every viewport (XF 0x101A-0x101F, "10 00 05 10 1A" + 6
+	floats; the 4th is the x offset) moves 300 pixels left.
+*/
+static u32 shift_viewports(const struct ring *r, u32 p, u32 len)
+{
+	union { float f; u32 i; } v, k;
+	u32 i, q, n = 0;
+
+	k.i = VP_SHIFT_BITS;		/* no float constants: no data section */
+	__asm__ ("" : "+r" (k.i));	/* keep gcc from folding it into .rodata */
+	for (i = 0; i + 29 <= len; i++) {
+		q = ring_add(r, p, i);
+		if (ring_rd(r, q, 0) != 0x10 || ring_rd(r, q, 1) != 0 || ring_rd(r, q, 2) != 5 ||
+		    ring_rd(r, q, 3) != 0x10 || ring_rd(r, q, 4) != 0x1A)
+			continue;
+		v.i = ((u32)ring_rd(r, q, 17) << 24) | ((u32)ring_rd(r, q, 18) << 16) |
+		      ((u32)ring_rd(r, q, 19) << 8) | ring_rd(r, q, 20);
+		v.f -= k.f;
+		ring_wr(r, q, 17, v.i >> 24);
+		ring_wr(r, q, 18, v.i >> 16);
+		ring_wr(r, q, 19, v.i >> 8);
+		ring_wr(r, q, 20, v.i);
+		n++;
+		i += 28;
 	}
 	return n;
 }
@@ -238,26 +262,12 @@ static int wait_gpu(struct hr_data *d, u32 tok, u32 where, u32 frame_start)
 			return 1;
 	}
 	if (!ST->diag_where) {		/* keep the first one */
-		u32 rp = cp_get32(28) & 0x3FFFFFFF;
-		u32 a = (rp & ~31) - 64, i;
 		ST->diag_where = where;
 		ST->diag_sr = ((u32)CPR[0] << 16) | CPR[1];
 		ST->diag_cnt = cp_get32(24);
-		ST->diag_rp = rp - frame_start;
+		ST->diag_rp = (cp_get32(28) & 0x3FFFFFFF) - frame_start;
 		ST->diag_tok = ((u32)PER[7] << 16) | tok;
-		/* the commands the GPU stopped at (no ring wrap handling, diagnostics only) */
-		DUMP[0] = a;
-		DUMP[1] = HR_DUMP_WORDS * 4;
-		for (i = 0; i < HR_DUMP_WORDS; i++)
-			DUMP[2 + i] = *(volatile u32 *)(0xC0000000 | (a + i * 4));
-		if (where == 2) {
-			u32 mk = PER[7];
-			ST2->diag_mk = mk;
-			ST2->diag_nmk = d->nmk;
-			ST2->diag_mk_off = frame_start;	/* kernel works out the offsets */
-			for (i = 0; i < 4; i++)
-				ST2->fs[i] = *(volatile u32 *)(0xC0000000 | (frame_start + i * 4));
-		}
+		ST2->diag_nmk = d->nmk;
 	}
 	return 0;
 }
@@ -298,69 +308,9 @@ static void marker(struct hr_data *d)
 	if (d->mode != HR_MODE_TWOPASS || !d->frame_start || d->nmk >= 0xFFF)
 		return;
 	n = d->nmk++;
-	((volatile u32 *)HR_MKPOS_PPC)[n & 15] = fifo_wp();
 	bp_write(0x47000000 | HR_MARKER | n);
 }
 
-/*
-	How the CP parses vertex data depends on the vertex descriptor and
-	attribute formats (CP 0x50/0x60, 0x70-0x9F). GX only sends them when
-	they change, so a replayed frame would start with the formats left by
-	the end of the first pass and misread its first draws. The frame
-	prologue sends the formats from GX's shadow copy in __GXData
-	(vcdLo/Hi +0x14/+0x18, vatA/B/C +0x1C/+0x3C/+0x5C), which equal the
-	GPU's at that point. Checked with the bits GXInit always sets (ByteDequant
-	in vatA, VCacheEnhance in vatB).
-*/
-static void send_vertex_formats(struct hr_data *d)
-{
-	u32 g = (u32)((gxdata_fn)d->gxdata_fn)();
-	volatile u32 *x;
-	u32 i;
-
-	if (g < 0x80000000 || g >= 0x81800000 - 0x400 || (g & 3)) {
-		ST->vtx_bad++;
-		return;
-	}
-	x = (volatile u32 *)g;
-	for (i = 0; i < 8; i++) {
-		if (!(x[7 + i] & 0x40000000) || !(x[15 + i] & 0x80000000)) {
-			ST->vtx_bad++;
-			return;
-		}
-	}
-	cp_write(0x50, x[5]);
-	cp_write(0x60, x[6]);
-	for (i = 0; i < 8; i++) {
-		cp_write(0x70 + i, x[7 + i]);
-		cp_write(0x80 + i, x[15 + i]);
-		cp_write(0x90 + i, x[23 + i]);
-	}
-	/*
-		XF 0x1008 (input vertex spec) has to match the descriptor or the
-		GPU hangs; GX sends it together with the descriptor
-		(__GXXfVtxSpecs). Normals count 1 unless a format uses NBT
-		(vatA bit 9), in which case GX's own value can't be worked out
-		here and it is left alone.
-	*/
-	for (i = 0; i < 8; i++)
-		if (x[7 + i] & 0x200)
-			break;
-	if (i == 8) {
-		u32 lo = x[5], hi = x[6], ncol, nnrm, ntex = 0;
-		ncol = ((lo >> 15) & 3) ? 2 : ((lo >> 13) & 3) ? 1 : 0;
-		nnrm = ((lo >> 11) & 3) ? 1 : 0;
-		for (i = 0; i < 8; i++)
-			if ((hi >> (2 * i)) & 3)
-				ntex = i + 1;
-		WGP8 = 0x10;
-		WGP32 = 0x00001008;
-		WGP32 = ncol | (nnrm << 2) | (ntex << 4);
-	} else {
-		ST->vtx_bad += 0x10000;	/* counted separately: NBT in use */
-	}
-	ST->vtx_ok++;
-}
 
 /*
 	The display copy has to copy one 640x240 tile into a framebuffer with
@@ -405,8 +355,6 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	d->nmk = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
-	if (d->test & HR_TEST_VTX)
-		send_vertex_formats(d);
 	if (d->cur_main)
 		orig(0, 0, 640, 240);
 	else
@@ -524,28 +472,12 @@ void hr_copydisp(void *dest, u32 clear)
 			patched++;
 		}
 		bp_set(&r, at, 0x4B000000 | ((dst + 1280) >> 5));
+		ST2->vp_shifted += shift_viewports(&r, d->frame_start, dist);
 	}
 	ST->last_patched = patched;
 	ST->pe_nopped += nop_pe_interrupts(&r, d->frame_start, dist);
 	ppc_sync();
 
-	if (d->test & HR_TEST_IDLE) {
-		u32 t0 = mftb(), ok = 0;
-		while (mftb() - t0 < WAIT_TICKS) {
-			if (cp_get32(24) == 0 && (CPR[0] & 0x0C) == 0x0C) {
-				ok = 1;
-				break;
-			}
-		}
-		if (ok)
-			ST2->idle_ok++;
-		else
-			ST2->idle_to++;
-	}
-	if (d->test & HR_TEST_DELAY) {
-		u32 t0 = mftb();
-		while (mftb() - t0 < 40500) ;
-	}
 
 	/* Pass 2: rewind the GPU to the start of the frame */
 	en = CPR[1];
