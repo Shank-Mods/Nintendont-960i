@@ -219,7 +219,7 @@ static void set_scissor_tile1(const struct ring *r, u32 q)
 	register, like GXSetDrawSync / GXReadDrawSync. The CP idle bits alone
 	turned out not to be reliable.
 */
-static int wait_gpu(u32 tok, u32 where, u32 frame_start)
+static int wait_gpu(struct hr_data *d, u32 tok, u32 where, u32 frame_start)
 {
 	u32 t0;
 
@@ -244,8 +244,65 @@ static int wait_gpu(u32 tok, u32 where, u32 frame_start)
 		DUMP[1] = HR_DUMP_WORDS * 4;
 		for (i = 0; i < HR_DUMP_WORDS; i++)
 			DUMP[2 + i] = *(volatile u32 *)(0xC0000000 | (a + i * 4));
+		if (where == 2) {
+			u32 mk = PER[7];
+			ST2->diag_mk = mk;
+			ST2->diag_nmk = d->nmk;
+			if ((mk & 0xF000) == HR_MARKER) {
+				/* find "61 47 00 Ax xx" in the frame */
+				volatile u8 *f = (volatile u8 *)(0xC0000000 | frame_start);
+				for (i = 0; i < 0x40000; i++) {
+					if (f[i] == 0x61 && f[i + 1] == 0x47 && f[i + 2] == 0 &&
+					    f[i + 3] == (mk >> 8) && f[i + 4] == (mk & 0xFF)) {
+						ST2->diag_mk_off = i;
+						break;
+					}
+				}
+			}
+			for (i = 0; i < 7; i++)
+				ST2->fs[i] = *(volatile u32 *)(0xC0000000 | (frame_start + i * 4));
+		}
 	}
 	return 0;
+}
+
+/*
+	The replay hung the GPU: reset the GP FIFO path like GXAbortFrame
+	(PI reset register 0xCC003018) and point the CP at the current end of
+	the FIFO, as __GXCleanGPFifo does, so the game can go on.
+*/
+static void recover_gpu(u32 en)
+{
+	u32 pi3 = PIR[3], pi4 = PIR[4], pi5, wp, t0;
+
+	CPR[1] = en & ~0x0D;		/* stop reading, no watermark interrupts */
+	ppc_sync();
+	pi5 = PIR[5];
+	PIR[6] = 1;
+	t0 = mftb(); while (mftb() - t0 < 4000) ;
+	PIR[6] = 0;
+	t0 = mftb(); while (mftb() - t0 < 4000) ;
+	PIR[3] = pi3;
+	PIR[4] = pi4;
+	PIR[5] = pi5;
+	wp = pi5 & 0x03FFFFE0;
+	cp_set32(24, 0);
+	cp_set32(26, wp);
+	cp_set32(28, wp);
+	ppc_sync();
+	CPR[2] = 3;
+	CPR[1] = en;
+	ST2->recovered++;
+}
+
+/* Two-pass: a PE token in the stream, to see how far a hung replay got */
+static void marker(struct hr_data *d)
+{
+	u32 n;
+	if (d->mode != HR_MODE_TWOPASS || !d->frame_start || d->nmk >= 0xFFF)
+		return;
+	n = d->nmk++;
+	bp_write(0x47000000 | HR_MARKER | n);
 }
 
 /*
@@ -348,6 +405,7 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	p = fifo_wp();
 	d->frame_start = (p - 32 >= r->base) ? p - 32 : p - 32 + r->size;
 	d->nsc = 0;
+	d->nmk = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
 	send_vertex_formats(d);
@@ -383,6 +441,7 @@ void hr_scissor(u32 l, u32 t, u32 w, u32 h)
 		orig(l, t, w, h);
 	}
 	bp_write(BP_SCOFF_T0);
+	marker(d);
 }
 
 void hr_copydisp(void *dest, u32 clear)
@@ -416,7 +475,7 @@ void hr_copydisp(void *dest, u32 clear)
 	}
 
 	tok = PER[7];			/* the game's token, put back at the end */
-	if (!wait_gpu((tok + 1) & 0xFFFF, 1, d->frame_start)) {
+	if (!wait_gpu(d, (tok + 1) & 0xFFFF, 1, d->frame_start)) {
 		ST->skip_timeout1++;
 		goto right_blank;
 	}
@@ -479,12 +538,16 @@ void hr_copydisp(void *dest, u32 clear)
 	cp_set32(24, ring_dist(&r, d->frame_start, wp));	/* read/write distance */
 	ppc_sync();
 	CPR[1] = (en & ~0x0C) | 1;	/* read again */
-	if (wait_gpu((tok + 2) & 0xFFFF, 2, d->frame_start))
+	if (wait_gpu(d, (tok + 2) & 0xFFFF, 2, d->frame_start)) {
 		ST->replays++;
-	else
+		CPR[2] = 3;		/* clear watermark status */
+		CPR[1] = en;
+	} else {
 		ST->timeout2++;
-	CPR[2] = 3;			/* clear watermark status */
-	CPR[1] = en;
+		recover_gpu(en);
+		if (++d->fails >= HR_MAX_FAILS)
+			d->mode = HR_MODE_LEFT;
+	}
 	bp_write(0x47000000 | tok);	/* the game's token value again */
 	frame_prologue(d, &r);
 	return;
@@ -524,6 +587,7 @@ void hr_calldl(const void *list, u32 nbytes)
 	}
 	nop = (((u32)d->nop_dl + 31) & ~31) & 0x3FFFFFFF;
 	orig((const void *)(0x80000000 | nop), 32);
+	marker(d);
 	src = (volatile u32 *)(0xC0000000 | p);
 	for (i = 0; i < nbytes / 4; i++)
 		WGP32 = src[i];

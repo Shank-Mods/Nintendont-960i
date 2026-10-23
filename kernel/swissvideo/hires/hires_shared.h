@@ -55,7 +55,12 @@ struct hr_data {
 	unsigned int sc_pos[HR_MAX_SCISSOR];	/* FIFO write pointer before each */
 	unsigned int tramp_dl[2];	/* GXCallDisplayList */
 	unsigned int nop_dl[16];	/* 32 aligned bytes of NOPs inside */
+	unsigned int nmk;		/* markers (PE tokens 0xA000 + n) in this frame */
+	unsigned int fails;		/* replays that hung the GPU */
 };
+
+#define HR_MARKER	0xA000
+#define HR_MAX_FAILS	4	/* then "Left half" for the rest of the session */
 
 struct hr_stats2 {
 	unsigned int dl_inlined;	/* display lists copied into the FIFO */
@@ -63,7 +68,11 @@ struct hr_stats2 {
 	unsigned int dl_bytes;		/* bytes copied */
 	unsigned int dl_max;		/* largest list copied */
 	unsigned int dl_big;		/* largest list called */
-	unsigned int reserved[11];
+	unsigned int diag_mk;		/* first pass 2 timeout: PE token (marker) */
+	unsigned int diag_mk_off;	/* ... its FIFO position - frame start */
+	unsigned int diag_nmk;		/* ... markers in that frame */
+	unsigned int recovered;		/* GPU resets after a hung replay */
+	unsigned int fs[7];		/* first 28 bytes of the frame that hung */
 };
 
 struct hr_stats {

@@ -1235,7 +1235,19 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 	hd->gxdata_fn[0] = 0x80600000 | gxbits;	/* lwz r3, d(rA) */
 	hd->gxdata_fn[1] = 0x4E800020;		/* blr */
 	hd->cur_l = 0; hd->cur_t = 0; hd->cur_w = 640; hd->cur_h = 480; hd->cur_main = 1;
-	block = 0x80000000 | (PatchCopy(hr_data_init, sizeof(hr_data_init)) - MEM1_BASE);
+	/*
+		The patch area (0x80001800-0x80003000) is nearly full with the
+		payload in it. Without cheats/debugger, 0x80001000-0x800012FF is
+		unused (the code handler's place; the next exception vector the
+		game installs is 0x1300), so the state block goes there.
+	*/
+#ifndef SWISSVIDEO_HOST_TEST
+	if (sizeof(hr_data_init) <= 0x300 && !ConfigGetConfig(NIN_CFG_CHEATS | NIN_CFG_DEBUGGER)) {
+		memcpy((void *)(MEM1_BASE + 0x1000), hr_data_init, sizeof(hr_data_init));
+		block = 0x80001000;
+	} else
+#endif
+		block = 0x80000000 | (PatchCopy(hr_data_init, sizeof(hr_data_init)) - MEM1_BASE);
 	hdv = (u32 *)block;
 
 	hr_hook(viewport, hdv + 1, (u32 *)(payload + HR_ENTRY_VIEWPORT), "GXSetViewport");
@@ -1370,6 +1382,11 @@ static void SwissVideoLogHiRes(void)
 		sync_before_read((void *)HR_STATS2_ARM, sizeof(struct hr_stats2));
 		swv_log("SwissVideo:hires: display lists copied %u (%u bytes, largest %u) called %u (largest %u)\r\n",
 			s2->dl_inlined, s2->dl_bytes, s2->dl_max, s2->dl_called, s2->dl_big);
+		swv_log("SwissVideo:hires: GPU resets after a hung replay %u\r\n", s2->recovered);
+		if (s->diag_where == 2)
+			swv_log("SwissVideo:hires: hung frame: last marker passed %04X at frame +%u (%u markers) | start %08X %08X %08X %08X %08X %08X %08X\r\n",
+				s2->diag_mk, s2->diag_mk_off, s2->diag_nmk, s2->fs[0], s2->fs[1], s2->fs[2],
+				s2->fs[3], s2->fs[4], s2->fs[5], s2->fs[6]);
 	}
 	if (s->diag_where) {
 		const u32 *dmp = (const u32 *)HR_DUMP_ARM;
