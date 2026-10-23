@@ -1201,6 +1201,9 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 		write32(HR_STATS_ARM + i, 0);
 	write32(HR_STATS_ARM, HR_STATS_MAGIC);
 	sync_after_write((void *)HR_STATS_ARM, sizeof(struct hr_stats));
+	for (i = 0; i < 0x80; i += 4)
+		write32(HR_DUMP_ARM + i, 0);
+	sync_after_write((void *)HR_DUMP_ARM, 0x80);
 #endif
 	swv_log("SwissVideo:hires: payload @ %08X (%u bytes), data @ %08X, __GXData lwz %08X\r\n",
 		payload, hires_payload_size, block, hd->gxdata_fn[0]);
@@ -1305,9 +1308,18 @@ static void SwissVideoLogHiRes(void)
 		s->gxdata_ok, s->gxdata_bad, s->last_disp_size);
 	swv_log("SwissVideo:hires: draw done/token interrupts removed from replays %u | vertex formats re-sent %u bad %u\r\n",
 		s->pe_nopped, s->vtx_ok, s->vtx_bad);
-	if (s->diag_where)
-		swv_log("SwissVideo:hires: last timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X\r\n",
+	if (s->diag_where) {
+		const u32 *dmp = (const u32 *)HR_DUMP_ARM;
+		u32 i;
+		swv_log("SwissVideo:hires: first timeout in pass %u: CP status/control %08X distance %u read pos %d token %08X\r\n",
 			s->diag_where, s->diag_sr, s->diag_cnt, (s32)s->diag_rp, s->diag_tok);
+		sync_before_read((void *)HR_DUMP_ARM, 0x80);
+		if (dmp[1] == HR_DUMP_WORDS * 4) {
+			for (i = 0; i < HR_DUMP_WORDS; i += 6)
+				swv_log("SwissVideo:hires: fifo %08X: %08X %08X %08X %08X %08X %08X\r\n",
+					dmp[0] + i * 4, dmp[2 + i], dmp[3 + i], dmp[4 + i], dmp[5 + i], dmp[6 + i], dmp[7 + i]);
+		}
+	}
 }
 
 static u32 viLogTimer = 0, viLogCount = 0, viLogPending = 0;

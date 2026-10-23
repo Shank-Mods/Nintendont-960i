@@ -14,6 +14,11 @@
 #define HR_STATS_ARM		0x13003280
 #define HR_STATS_MAGIC		0x48524553	/* 'HRES' */
 
+/* FIFO bytes around the CP read pointer at the first timeout (0x80 bytes) */
+#define HR_DUMP_PPC		0xD3003300
+#define HR_DUMP_ARM		0x13003300
+#define HR_DUMP_WORDS		30	/* + address and length */
+
 /* Offsets of the entry points in the payload */
 #define HR_ENTRY_VIEWPORT	0x00
 #define HR_ENTRY_SCISSOR	0x04
@@ -70,7 +75,7 @@ struct hr_stats {
 	unsigned int pe_nopped;	/* draw done / token interrupts removed from replays */
 	unsigned int vtx_ok;		/* frame prologues with the vertex formats re-sent */
 	unsigned int vtx_bad;		/* __GXData vertex formats not where expected */
-	unsigned int diag_where;	/* last timeout: 1 first pass, 2 second pass */
+	unsigned int diag_where;	/* first timeout: 1 first pass, 2 second pass */
 	unsigned int diag_sr;		/* CP status << 16 | CP control */
 	unsigned int diag_cnt;		/* CP read/write distance */
 	unsigned int diag_rp;		/* CP read pointer - frame start */

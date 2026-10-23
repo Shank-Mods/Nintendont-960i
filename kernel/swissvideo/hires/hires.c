@@ -22,6 +22,7 @@ typedef unsigned char u8;
 
 #define HR	((struct hr_data *)(*(volatile u32 *)(0x80000000 | HR_DATA_PTR_VAR)))
 #define ST	((volatile struct hr_stats *)HR_STATS_PPC)
+#define DUMP	((volatile u32 *)HR_DUMP_PPC)	/* [0] address, [1] bytes, [2..] data */
 
 #define CPR	((volatile u16 *)0xCC000000)	/* command processor */
 #define PER	((volatile u16 *)0xCC001000)	/* pixel engine (7 = token) */
@@ -228,11 +229,20 @@ static int wait_gpu(u32 tok, u32 where, u32 frame_start)
 		if (PER[7] == tok)
 			return 1;
 	}
-	ST->diag_where = where;
-	ST->diag_sr = ((u32)CPR[0] << 16) | CPR[1];
-	ST->diag_cnt = cp_get32(24);
-	ST->diag_rp = (cp_get32(28) & 0x3FFFFFFF) - frame_start;
-	ST->diag_tok = ((u32)PER[7] << 16) | tok;
+	if (!ST->diag_where) {		/* keep the first one */
+		u32 rp = cp_get32(28) & 0x3FFFFFFF;
+		u32 a = (rp & ~31) - 64, i;
+		ST->diag_where = where;
+		ST->diag_sr = ((u32)CPR[0] << 16) | CPR[1];
+		ST->diag_cnt = cp_get32(24);
+		ST->diag_rp = rp - frame_start;
+		ST->diag_tok = ((u32)PER[7] << 16) | tok;
+		/* the commands the GPU stopped at (no ring wrap handling, diagnostics only) */
+		DUMP[0] = a;
+		DUMP[1] = HR_DUMP_WORDS * 4;
+		for (i = 0; i < HR_DUMP_WORDS; i++)
+			DUMP[2 + i] = *(volatile u32 *)(0xC0000000 | (a + i * 4));
+	}
 	return 0;
 }
 
@@ -269,6 +279,29 @@ static void send_vertex_formats(struct hr_data *d)
 		cp_write(0x70 + i, x[7 + i]);
 		cp_write(0x80 + i, x[15 + i]);
 		cp_write(0x90 + i, x[23 + i]);
+	}
+	/*
+		XF 0x1008 (input vertex spec) has to match the descriptor or the
+		GPU hangs; GX sends it together with the descriptor
+		(__GXXfVtxSpecs). Normals count 1 unless a format uses NBT
+		(vatA bit 9), in which case GX's own value can't be worked out
+		here and it is left alone.
+	*/
+	for (i = 0; i < 8; i++)
+		if (x[7 + i] & 0x200)
+			break;
+	if (i == 8) {
+		u32 lo = x[5], hi = x[6], ncol, nnrm, ntex = 0;
+		ncol = ((lo >> 15) & 3) ? 2 : ((lo >> 13) & 3) ? 1 : 0;
+		nnrm = ((lo >> 11) & 3) ? 1 : 0;
+		for (i = 0; i < 8; i++)
+			if ((hi >> (2 * i)) & 3)
+				ntex = i + 1;
+		WGP8 = 0x10;
+		WGP32 = 0x00001008;
+		WGP32 = ncol | (nnrm << 2) | (ntex << 4);
+	} else {
+		ST->vtx_bad += 0x10000;	/* counted separately: NBT in use */
 	}
 	ST->vtx_ok++;
 }
