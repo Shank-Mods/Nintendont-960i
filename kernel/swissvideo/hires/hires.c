@@ -131,9 +131,23 @@ static inline u32 ring_dist(const struct ring *r, u32 from, u32 to)
 	return (to >= from) ? to - from : to + r->size - from;
 }
 
+/*
+	FIFO reads go through the data cache (one burst per 32 bytes instead of
+	one bus access per byte); the range is invalidated with dcbi first
+	(cache_fifo), since the GPU's FIFO is written past the cache.
+*/
 static inline u8 ring_rd(const struct ring *r, u32 p, u32 n)
 {
-	return *UNCACHED(ring_add(r, p, n));
+	return *(volatile u8 *)(0x80000000 | ring_add(r, p, n));
+}
+
+static void cache_fifo(const struct ring *r, u32 p, u32 len)
+{
+	u32 i;
+	p &= ~31;
+	for (i = 0; i < len + 64; i += 32)
+		__asm__ volatile ("dcbi 0,%0" : : "r" (0x80000000 | ring_add(r, p, i)) : "memory");
+	ppc_sync();
 }
 
 /*
@@ -250,6 +264,11 @@ static u32 shift_viewports(const struct ring *r, u32 p, u32 len)
 		q = ring_add(r, p, i);
 		if (ring_rd(r, q, 0) != 0x10 || ring_rd(r, q, 1) != 0 || ring_rd(r, q, 2) != 5 ||
 		    ring_rd(r, q, 3) != 0x10 || ring_rd(r, q, 4) != 0x1A)
+			continue;
+		/* only the full screen viewport (x scale 640.0: 1280 wide), not
+		   render-to-texture passes */
+		if (ring_rd(r, q, 5) != 0x44 || ring_rd(r, q, 6) != 0x20 ||
+		    ring_rd(r, q, 7) != 0 || ring_rd(r, q, 8) != 0)
 			continue;
 		v.i = ((u32)ring_rd(r, q, 17) << 24) | ((u32)ring_rd(r, q, 18) << 16) |
 		      ((u32)ring_rd(r, q, 19) << 8) | ring_rd(r, q, 20);
@@ -370,6 +389,7 @@ static void frame_prologue(struct hr_data *d, const struct ring *r)
 	p = fifo_wp();
 	d->frame_start = (p - 32 >= r->base) ? p - 32 : p - 32 + r->size;
 	d->nsc = 0;
+	d->dl_called = 0;
 	d->prologue_pos = p;
 	d->prologue_main = d->cur_main;
 	if (d->cur_main)
@@ -445,6 +465,7 @@ void hr_copydisp(void *dest, u32 clear)
 	end = fifo_wp();
 
 	dist = ring_dist(&r, d->frame_start, end);
+	cache_fifo(&r, d->frame_start, dist);
 	ST->last_frame = dist;
 	if (dist > ST->max_frame)
 		ST->max_frame = dist;
@@ -511,47 +532,22 @@ void hr_copydisp(void *dest, u32 clear)
 
 
 	/*
-		Pass 2: rewind the GPU to the start of the frame. The read/write
-		distance register is moved back by the same amount as the read
-		pointer, with interrupts off (nothing else may write the FIFO in
-		between). Setting it from the write pointer instead left it 32
-		bytes short now and then; once the GPU caught up it went negative,
-		GX's overflow handler suspended the game's thread and nothing ever
-		resumed it.
+		Pass 2: the frame, still in the FIFO and now patched for the right
+		half, is run again as a display list (it holds no CALL_DL: lists
+		are copied in, see hr_calldl). Nothing waits for it: the next
+		frame's commands follow it in the FIFO. A frame that wraps around
+		the end of the FIFO isn't replayed (its right half stays as it was).
 	*/
-	msr = irq_off();
-	en = CPR[1];
-	CPR[1] = en & ~0x0D;		/* stop reading, no watermark interrupts */
-	ppc_sync();
-	wp = cp_get32(28) & 0x3FFFFFFF;	/* where the GPU stopped reading */
-	cp_set32(28, d->frame_start);	/* read pointer */
-	cp_set32(24, cp_get32(24) + ring_dist(&r, d->frame_start, wp));
-	ppc_sync();
-	CPR[1] = (en & ~0x0C) | 1;	/* read again */
-	irq_restore(msr);
-	if (wait_gpu(d, tok == 0x5A53 ? 0x5A54 : 0x5A53, 2, d->frame_start)) {
-		u32 t0 = mftb();
+	if (d->frame_start + dist <= r.base + r.size && !(d->frame_start & 31) && !(dist & 31) &&
+	    !d->dl_called) {
+		WGP8 = 0x40;
+		WGP32 = d->frame_start;
+		WGP32 = dist;
 		ST->replays++;
-		/* until the GPU has read everything (our trailing NOPs too) */
-		while (!(CPR[0] & 4) && mftb() - t0 < WAIT_TICKS / 100) ;
-		msr = irq_off();
-		if ((CPR[0] & 4) && cp_get32(24) != 0) {
-			/* read idle but distance not 0: put it right */
-			CPR[1] = en & ~0x0D;
-			ppc_sync();
-			cp_set32(24, 0);
-			ST2->dist_fixed++;
-		}
-		CPR[2] = 3;		/* clear watermark status */
-		CPR[1] = en;
-		irq_restore(msr);
 	} else {
-		ST->timeout2++;
-		ST2->hung_frames |= 1u << (ST->copies & 31);
-		recover_gpu(en);
-		if (++d->fails >= HR_MAX_FAILS && !(d->test & HR_TEST_KEEPON))
-			d->mode = HR_MODE_LEFT;
+		ST->timeout2++;		/* counted as "not replayed" */
 	}
+	(void)en; (void)wp; (void)msr;
 	bp_write(0x47000000 | tok);	/* the game's token value again */
 	frame_prologue(d, &r);
 	return;
@@ -584,6 +580,7 @@ void hr_calldl(const void *list, u32 nbytes)
 	if (d->mode != HR_MODE_TWOPASS || nbytes == 0 || nbytes > HR_DL_INLINE_MAX ||
 	    (nbytes & 31) || (p & 31) || p + nbytes > 0x01800000) {
 		ST2->dl_called++;
+		d->dl_called++;		/* this frame can't be replayed as a display list */
 		if (nbytes > ST2->dl_big)
 			ST2->dl_big = nbytes;
 		orig(list, nbytes);

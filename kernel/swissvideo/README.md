@@ -122,11 +122,14 @@ the build links it at two addresses and fails unless the blobs match):
   (the EFB is 640 wide), followed by a scissor offset write; the FIFO write
   pointer is recorded.
 * `GXCopyDisp`: copies the left half (copy registers in `__GXData` set to
-  640x240, 1280 pixel stride), waits until the GPU has read the FIFO, then
-  patches the frame's recorded scissors to the right half with offset 640,
-  turns the copy into a right half copy, points the CP read pointer back at
-  the start of the frame and lets the GPU run it again. A NOP run marks
-  each frame start in the FIFO.
+  640x240, 1280 pixel stride), waits (PE token) until the GPU has run the
+  frame, then patches it for the right half (full screen scissors to the
+  right tile with scissor offset 340, full screen viewports 300 to the left,
+  the copy to the right half) with 32 bit writes (byte stores into the FIFO
+  hung the GPU) and runs the frame again as a display list (CALL_DL), without
+  waiting for it. Display lists the frame calls are copied into the FIFO
+  (GXCallDisplayList hook) so the replay can't call a rebuilt list and has
+  no nested call. A NOP run marks each frame start in the FIFO.
 
 The replay starts right after the previous frame's copy, so it contains
 that frame's `GXSetDrawDone` / `GXSetDrawSync`; those BP writes (0x45,

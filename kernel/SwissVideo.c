@@ -1397,7 +1397,7 @@ static void SwissVideoLogHiRes(void)
 		swv_log("SwissVideo:hires: no counters (payload not running)\r\n");
 		return;
 	}
-	swv_log("SwissVideo:hires: copies %u replays %u | skip first %u big %u overwritten %u nocopy %u timeout %u | timeout2 %u\r\n",
+	swv_log("SwissVideo:hires: copies %u replays %u | skip first %u big %u overwritten %u nocopy %u timeout %u | not replayed %u\r\n",
 		s->copies, s->replays, s->skip_first, s->skip_big, s->skip_overwritten,
 		s->skip_nocopy, s->skip_timeout1, s->timeout2);
 	swv_log("SwissVideo:hires: fifo %08X size %u, frame %u max %u bytes, scissors patched %u lost %u\r\n",

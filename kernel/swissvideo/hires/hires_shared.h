@@ -65,6 +65,7 @@ struct hr_data {
 	unsigned int fails;		/* replays that hung the GPU */
 	unsigned int test;		/* HR_TEST_* (experiments: hrtest= in nin960i_vi.txt) */
 	unsigned int jmp[4][4];		/* lis r12 / ori r12 / mtctr r12 / bctr to the payload */
+	unsigned int dl_called;		/* display lists called (not copied) in this frame */
 };
 
 /*
