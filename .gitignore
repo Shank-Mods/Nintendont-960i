@@ -17,3 +17,7 @@ kernel/swissvideo/hires/*.bin
 kernel/swissvideo/hires/hires_payload.h
 kernel/swissvideo/test/swissvideo_test
 out/
+kernel/swissvideo/perf/*.o
+kernel/swissvideo/perf/*.elf
+kernel/swissvideo/perf/*.bin
+kernel/swissvideo/perf/perf_payload.h

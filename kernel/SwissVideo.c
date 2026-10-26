@@ -42,6 +42,8 @@ GNU General Public License for more details.
 #include "swissvideo/stubs.h"
 #include "swissvideo/hires/hires_shared.h"
 #include "swissvideo/hires/hires_payload.h"
+#include "swissvideo/perf/perf_shared.h"
+#include "swissvideo/perf/perf_payload.h"
 
 /* From Patch.c */
 extern u32 PatchCopy(const u8 *PatchPtr, const u32 PatchSize);
@@ -674,6 +676,8 @@ static void swv_log(const char *fmt, ...)
 /* What Patch_Video() found, for the 1280x240p experiment */
 static u32 swv_exp_copydisp, swv_exp_viewport, swv_exp_yscale;
 static int swv_exp_copydisp_j = -1, swv_exp_viewport_j = -1, swv_exp_yscale_j = -1;
+static u32 swv_exp_retrace;
+static int swv_exp_retrace_j = -1;
 
 static int swv_first_found(const FuncPattern *sigs, u32 count, u32 *at)
 {
@@ -692,6 +696,7 @@ static int swv_first_found(const FuncPattern *sigs, u32 count, u32 *at)
 	swv_exp_copydisp_j = swv_first_found(GXCopyDispSigs, countof(GXCopyDispSigs), &swv_exp_copydisp); \
 	swv_exp_viewport_j = swv_first_found(GXSetViewportSigs, countof(GXSetViewportSigs), &swv_exp_viewport); \
 	swv_exp_yscale_j = swv_first_found(GXSetDispCopyYScaleSigs, countof(GXSetDispCopyYScaleSigs), &swv_exp_yscale); \
+	swv_exp_retrace_j = swv_first_found(__VIRetraceHandlerSigs, countof(__VIRetraceHandlerSigs), &swv_exp_retrace); \
 } while (0)
 
 #include "swissvideo/Patch_Video.inc"
@@ -758,6 +763,8 @@ static void swv_log_timing(const char *what, const u8 *t)
 static s32 swv_ovr_vmode, swv_ovr_vjitter, swv_ovr_vfilter, swv_ovr_avecompat;
 static s32 swv_ovr_swiss;	/* 0 = don't apply the Swiss patches (baseline) */
 static s32 swv_ovr_hrtest = -1;	/* 1280x240p test flags (HR_TEST_*) */
+static s32 swv_ovr_perf = -1;	/* frame-time profiler: 0 = off (default on) */
+static s32 swv_ovr_perfosd = -1;	/* profiler overlay: 0 = log only (default on) */
 static s32 swv_ovr_timing[countof(swv_timing_fields)];
 static s32 swv_ovr_hr_timing[countof(swv_timing_fields)];	/* hr_<field>: 1280x240p */
 
@@ -768,6 +775,8 @@ static void swv_apply_setting(const char *name, u32 n)
 	if (strcmp(name, "gamevmode") == 0)        swv_ovr_vmode = n;
 	else if (strcmp(name, "swiss") == 0)        swv_ovr_swiss = n;
 	else if (strcmp(name, "hrtest") == 0)       swv_ovr_hrtest = n;
+	else if (strcmp(name, "perf") == 0)         swv_ovr_perf = n;
+	else if (strcmp(name, "perfosd") == 0)      swv_ovr_perfosd = n;
 	else if (strcmp(name, "forcevjitter") == 0) swv_ovr_vjitter = n;
 	else if (strcmp(name, "forcevfilter") == 0) swv_ovr_vfilter = n;
 	else if (strcmp(name, "avecompat") == 0)    swv_ovr_avecompat = n;
@@ -803,6 +812,7 @@ static void SwissVideoReadSettings(void)
 	u32 i, n;
 
 	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
+	swv_ovr_perf = swv_ovr_perfosd = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = swv_ovr_hr_timing[i] = -1;
 
@@ -857,6 +867,7 @@ static void SwissVideoReadSettings(void)
 {
 	u32 i;
 	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
+	swv_ovr_perf = swv_ovr_perfosd = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = swv_ovr_hr_timing[i] = -1;
 }
@@ -1309,6 +1320,135 @@ static void SwissVideoHiResInstall(u32 *data, u32 length)
 		payload, hires_payload_size, block, hd->gxdata_fn[0]);
 }
 
+
+/* ------------------------------------------------------------------------ */
+/* Frame-time profiler (see swissvideo/perf/perf_shared.h)                  */
+/* ------------------------------------------------------------------------ */
+
+/* 8x8 font, ASCII 0x20..0x5F (only what the overlay uses is filled in) */
+static const struct { char c; u8 g[8]; } pf_glyphs[] = {
+	{ '.', { 0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00 } },
+	{ '0', { 0x3C,0x66,0x6E,0x76,0x66,0x66,0x3C,0x00 } },
+	{ '1', { 0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0x00 } },
+	{ '2', { 0x3C,0x66,0x06,0x0C,0x30,0x60,0x7E,0x00 } },
+	{ '3', { 0x3C,0x66,0x06,0x1C,0x06,0x66,0x3C,0x00 } },
+	{ '4', { 0x0C,0x1C,0x3C,0x6C,0x7E,0x0C,0x0C,0x00 } },
+	{ '5', { 0x7E,0x60,0x7C,0x06,0x06,0x66,0x3C,0x00 } },
+	{ '6', { 0x1C,0x30,0x60,0x7C,0x66,0x66,0x3C,0x00 } },
+	{ '7', { 0x7E,0x06,0x0C,0x18,0x30,0x30,0x30,0x00 } },
+	{ '8', { 0x3C,0x66,0x66,0x3C,0x66,0x66,0x3C,0x00 } },
+	{ '9', { 0x3C,0x66,0x66,0x3E,0x06,0x0C,0x38,0x00 } },
+	{ 'A', { 0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x00 } },
+	{ 'D', { 0x78,0x6C,0x66,0x66,0x66,0x6C,0x78,0x00 } },
+	{ 'E', { 0x7E,0x60,0x60,0x78,0x60,0x60,0x7E,0x00 } },
+	{ 'F', { 0x7E,0x60,0x60,0x78,0x60,0x60,0x60,0x00 } },
+	{ 'G', { 0x3C,0x66,0x60,0x6E,0x66,0x66,0x3C,0x00 } },
+	{ 'H', { 0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x00 } },
+	{ 'I', { 0x3C,0x18,0x18,0x18,0x18,0x18,0x3C,0x00 } },
+	{ 'K', { 0x66,0x6C,0x78,0x70,0x78,0x6C,0x66,0x00 } },
+	{ 'L', { 0x60,0x60,0x60,0x60,0x60,0x60,0x7E,0x00 } },
+	{ 'M', { 0x63,0x77,0x7F,0x6B,0x63,0x63,0x63,0x00 } },
+	{ 'N', { 0x66,0x76,0x7E,0x7E,0x6E,0x66,0x66,0x00 } },
+	{ 'O', { 0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00 } },
+	{ 'P', { 0x7C,0x66,0x66,0x7C,0x60,0x60,0x60,0x00 } },
+	{ 'R', { 0x7C,0x66,0x66,0x7C,0x78,0x6C,0x66,0x00 } },
+	{ 'S', { 0x3C,0x66,0x60,0x3C,0x06,0x66,0x3C,0x00 } },
+	{ 'T', { 0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x00 } },
+	{ 'U', { 0x66,0x66,0x66,0x66,0x66,0x66,0x3C,0x00 } },
+	{ 'W', { 0x63,0x63,0x63,0x6B,0x7F,0x77,0x63,0x00 } },
+	{ 'X', { 0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00 } },
+};
+
+static bool pf_active;
+
+static void SwissVideoPerfInstall(u32 *data, u32 length)
+{
+	u32 *copydisp, *retrace = NULL;
+	u32 i, j, *blk;
+	struct pf_data *d;
+
+	(void)length;
+	pf_active = false;
+	if (swv_ovr_perf == 0) {
+		swv_log("SwissVideo:perf: off (perf=0)\r\n");
+		return;
+	}
+	if (swissSettings.hiRes240p) {
+		swv_log("SwissVideo:perf: off (1280x240p hooks GXCopyDisp)\r\n");
+		return;
+	}
+	if (swv_exp_copydisp_j < 0) {
+		swv_log("SwissVideo:perf: GXCopyDisp not found, profiler off\r\n");
+		return;
+	}
+#ifndef SWISSVIDEO_HOST_TEST
+	if (ConfigGetConfig(NIN_CFG_CHEATS | NIN_CFG_DEBUGGER)) {
+		swv_log("SwissVideo:perf: off (cheats/debugger use 0x80001000)\r\n");
+		return;
+	}
+	if (perf_payload_size > PF_PAYLOAD_MAX) {
+		swv_log("SwissVideo:perf: payload too big (%u)\r\n", perf_payload_size);
+		return;
+	}
+#endif
+	copydisp = Calc_ProperAddress(data, PATCH_DOL, swv_exp_copydisp * sizeof(u32));
+	if (!hr_hookable(copydisp, "GXCopyDisp"))
+		return;
+	/* The overlay is drawn after each vertical blank; without the handler it's log only */
+	if (swv_exp_retrace_j >= 0) {
+		retrace = Calc_ProperAddress(data, PATCH_DOL, swv_exp_retrace * sizeof(u32));
+		if (!hr_hookable(retrace, "__VIRetraceHandler"))
+			retrace = NULL;
+	} else
+		swv_log("SwissVideo:perf: __VIRetraceHandler not found, no overlay\r\n");
+
+#ifndef SWISSVIDEO_HOST_TEST
+	/* payload in MEM2 */
+	memcpy((void *)PF_PAYLOAD_ARM, perf_payload, perf_payload_size);
+	sync_after_write((void *)PF_PAYLOAD_ARM, perf_payload_size);
+
+	/* shared data: zero, font, settings */
+	d = (struct pf_data *)PF_DATA_ARM;
+	memset(d, 0, sizeof(*d));
+	for (i = 0; i < countof(pf_glyphs); i++) {
+		u32 c = (u8)pf_glyphs[i].c;
+		if (c >= 0x20 && c < 0x60)
+			for (j = 0; j < 8; j++)
+				d->font[c - 0x20][j] = pf_glyphs[i].g[j];
+	}
+	d->enabled = 1;
+	d->osd = (swv_ovr_perfosd == 0 || !retrace) ? 0 : 1;
+	d->magic = PF_MAGIC;
+	sync_after_write(d, sizeof(*d));
+#else
+	(void)d; (void)i; (void)j;
+#endif
+
+	/* MEM1 block: trampolines (first insn, b back) + absolute jumps to the payload */
+	blk = (u32 *)PF_BLOCK;
+	{
+		static const u32 jmp_off[2] = { PF_JMP_COPYDISP, PF_JMP_RETRACE };
+		static const u32 entry[2] = { PF_ENTRY_COPYDISP, PF_ENTRY_RETRACE };
+		for (i = 0; i < 2; i++) {
+			u32 *jw = P2C_PTR(blk) + jmp_off[i] / 4;
+			u32 t = PF_PAYLOAD_PPC + entry[i];
+			jw[0] = 0x3D800000 | (t >> 16);		/* lis r12, t@h */
+			jw[1] = 0x618C0000 | (t & 0xFFFF);	/* ori r12, r12, t@l */
+			jw[2] = 0x7D8903A6;			/* mtctr r12 */
+			jw[3] = 0x4E800420;			/* bctr */
+		}
+	}
+	hr_hook(copydisp, blk + PF_TRAMP_COPYDISP / 4, blk + PF_JMP_COPYDISP / 4, "GXCopyDisp (perf)");
+	if (retrace)
+		hr_hook(retrace, blk + PF_TRAMP_RETRACE / 4, blk + PF_JMP_RETRACE / 4, "__VIRetraceHandler (perf)");
+	sync_after_write(P2C_PTR(blk), 0x40);
+
+	pf_active = true;
+	swv_log("SwissVideo:perf: profiler on, payload %u bytes @ %08X, overlay %s\r\n",
+		perf_payload_size, PF_PAYLOAD_PPC,
+		(swv_ovr_perfosd == 0 || !retrace) ? "off" : "on");
+}
+
 void SwissVideoPatch(char *Buffer, u32 Length)
 {
 	Length &= ~3;
@@ -1356,6 +1496,7 @@ void SwissVideoPatch(char *Buffer, u32 Length)
 		memcpy(video_timing + 6 * 38, saved_timing, 38);
 		SwissVideoHiResInstall((u32 *)Buffer, Length);
 	}
+	SwissVideoPerfInstall((u32 *)Buffer, Length);
 	/* Same order as Swiss' Patch_ExecutableFile() */
 	if (swissSettings.forceWidescreen)
 		Patch_Widescreen((u32 *)Buffer, Length, PATCH_DOL);
@@ -1471,9 +1612,102 @@ static void SwissVideoWriteLog(void)
 	SwissVideoWriteLogTo("/nin960i.log");
 }
 
+/*
+	Frame-time profiler log: every ~5 s one line of the payload's last
+	published averages, in /ninperf_NN.log (first free number) and
+	/ninperf.log (latest).
+*/
+#define PF_LOG_INTERVAL	(1898437 * 5)
+static char pf_logbuf[16 * 1024];
+static u32 pf_loglen, pf_logtimer, pf_lastseq, pf_lines;
+static char pf_logname[20];
+
+static void pf_log(const char *fmt, ...)
+{
+	char line[0x100];
+	va_list args;
+	u32 len;
+
+	va_start(args, fmt);
+	len = _vsprintf(line, fmt, args);
+	va_end(args);
+	if (pf_loglen + len < sizeof(pf_logbuf)) {
+		memcpy(pf_logbuf + pf_loglen, line, len);
+		pf_loglen += len;
+	}
+}
+
+static void pf_write_file(const char *name)
+{
+	FIL f;
+	UINT wrote;
+	if (f_open_char(&f, name, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
+		return;
+	f_write(&f, pf_logbuf, pf_loglen, &wrote);
+	f_close(&f);
+}
+
+#define PF_MS(v)	(v) / 100, ((v) / 10) % 10
+
+static void SwissVideoLogPerf(void)
+{
+	const struct pf_data *d = (const struct pf_data *)PF_DATA_ARM;
+
+	if (!pf_active)
+		return;
+	if (pf_logtimer == 0) {
+		pf_logtimer = read32(HW_TIMER);
+		return;
+	}
+	if (TimerDiffTicks(pf_logtimer) < PF_LOG_INTERVAL)
+		return;
+	if (DI_IRQ != false)
+		return;	/* don't compete with the game's disc reads */
+	pf_logtimer = read32(HW_TIMER);
+
+	sync_before_read((void *)d, 0x100);
+	if (!pf_logname[0]) {
+		FIL f;
+		u32 n;
+		strcpy(pf_logname, "/ninperf_00.log");
+		for (n = 1; n <= 99; n++) {
+			pf_logname[9] = '0' + n / 10;
+			pf_logname[10] = '0' + n % 10;
+			if (f_open_char(&f, pf_logname, FA_READ | FA_OPEN_EXISTING) != FR_OK)
+				break;
+			f_close(&f);
+		}
+		if (n > 99)
+			pf_logname[9] = pf_logname[10] = '9';
+		pf_log("Nintendont frame-time profiler. Every line: averages of the last %u frames, ms.\r\n", PF_WINDOW);
+		pf_log("frame = time between GXCopyDisp calls; main/other/idle = CPU split of that time\r\n");
+		pf_log("(main = thread that calls GXCopyDisp, idle = no thread running); gpu = GPU busy;\r\n");
+		pf_log("fifo = GPU command backlog when the frame is submitted; slow = frames over 20 ms\r\n");
+		pf_log("cpu %u Hz, bus %u Hz\r\n", d->cpu_hz, d->bus_hz);
+	}
+	if (d->magic != PF_MAGIC) {
+		pf_log("no data (payload not running)\r\n");
+	} else if (d->seq == pf_lastseq) {
+		pf_log("no new frames (copies %u, retraces %u, installed %u, samples %u)\r\n",
+			d->copies, d->retraces, d->installed, d->s_total);
+	} else {
+		pf_lastseq = d->seq;
+		pf_lines++;
+		pf_log("#%u frame %u.%u max %u.%u | main %u.%u other %u.%u idle %u.%u | gpu %u.%u | fifo %uK max %uK | slow %u/%u | samples %u | overlay %u us\r\n",
+			pf_lines, PF_MS(d->r_frame), PF_MS(d->r_max_frame),
+			PF_MS(d->r_main), PF_MS(d->r_other), PF_MS(d->r_idle), PF_MS(d->r_gpu),
+			(d->r_fifo + 1023) / 1024, (d->r_max_fifo + 1023) / 1024,
+			d->r_slow, d->r_n, d->r_samples, d->r_ovl * 10);
+	}
+	pf_write_file(pf_logname);
+	pf_write_file("/ninperf.log");
+}
+
 void SwissVideoLogVI(void)
 {
 	u32 i, nonzero = 0;
+
+	SwissVideoLogPerf();
 
 	if (!SwissVideoEnabled())
 		return;

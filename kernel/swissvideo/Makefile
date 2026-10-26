@@ -20,7 +20,7 @@ ASFLAGS	:= -mregnames -D_LANGUAGE_ASSEMBLY -I.
 .PHONY: all clean
 .PRECIOUS: %.o %.bin
 
-all: $(HFILES) hires/hires_payload.h
+all: $(HFILES) hires/hires_payload.h perf/perf_payload.h
 
 # 1280x240p two-pass payload (position independent PowerPC code, no data).
 # Linked at two addresses: the blobs must be identical.
@@ -54,6 +54,37 @@ hires/hires_payload.h: hires/hires_payload.bin
 	@echo " BIN2H       $<"
 	@cd hires && ../$(BIN2H) hires_payload.bin
 
+# Frame-time profiler payload (position independent PowerPC code, no data).
+PF_CFLAGS := -O2 -mcpu=750 -meabi -msoft-float -mno-sdata -fno-pic -fno-PIC \
+	-ffreestanding -fno-builtin -fno-jump-tables -fno-common -fno-tree-loop-distribute-patterns \
+	-fno-asynchronous-unwind-tables -nostdlib -Wall -Iperf
+
+perf/perf_entry.o: perf/perf_entry.S perf/perf_shared.h
+	@echo " ASSEMBLE    $<"
+	@$(CC) -x assembler-with-cpp $(ASFLAGS) -Iperf -c $< -o $@
+
+perf/perf.o: perf/perf.c perf/perf_shared.h
+	@echo " COMPILE     $<"
+	@$(CC) $(PF_CFLAGS) -c $< -o $@
+
+perf/perf_payload.bin: perf/perf_entry.o perf/perf.o perf/perf.ld
+	@echo " LINK        $@"
+	@$(CC) -nostdlib -nostartfiles -Wl,--defsym=PF_LINK_ADDR=0 -T perf/perf.ld \
+		perf/perf_entry.o perf/perf.o -o perf/perf_a.elf
+	@$(CC) -nostdlib -nostartfiles -Wl,--defsym=PF_LINK_ADDR=0x10000 -T perf/perf.ld \
+		perf/perf_entry.o perf/perf.o -o perf/perf_b.elf
+	@$(OBJCOPY) -O binary -j .text perf/perf_a.elf perf/perf_a.bin
+	@$(OBJCOPY) -O binary -j .text perf/perf_b.elf perf/perf_b.bin
+	@cmp -s perf/perf_a.bin perf/perf_b.bin || \
+		{ echo "perf payload is not position independent"; exit 1; }
+	@! $(PREFIX)objdump -h perf/perf_a.elf | grep -E " \.(s?data|s?bss|rodata|sdata2|got)" || \
+		{ echo "perf payload must not have data sections"; exit 1; }
+	@cp perf/perf_a.bin $@
+
+perf/perf_payload.h: perf/perf_payload.bin
+	@echo " BIN2H       $<"
+	@cd perf && ../$(BIN2H) perf_payload.bin
+
 stubs/%.o: stubs/%.S reservedarea.h
 	@echo " ASSEMBLE    $<"
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c $< -o $@
@@ -68,3 +99,4 @@ stubs/%.h: stubs/%.bin
 clean:
 	-$(RM) -f stubs/*.o stubs/*.bin stubs/*.h
 	-$(RM) -f hires/*.o hires/*.elf hires/*.bin hires/hires_payload.h
+	-$(RM) -f perf/*.o perf/*.elf perf/*.bin perf/perf_payload.h
