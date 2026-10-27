@@ -302,10 +302,25 @@ void pf_retrace(void)
 	volatile struct pf_data *d = D;
 	u32 tfbl, bfbl, b, xfb, t0;
 
-	if (d->magic != PF_MAGIC || !d->enabled)
+	if (d->magic != PF_MAGIC)
 		return;
 	d->retraces++;
-	if (!d->osd || !d->seq || !d->installed)
+
+	/* BT.656: the game's VI code writes DCR / leaves the border off; put ours back */
+	if (d->bt656) {
+		u32 dcr = VI16(0x02);
+		if ((dcr & 0x0300) != 0x0300) {
+			VI16(0x02) = dcr | 0x0300;
+			d->b656_fixes++;
+		}
+		if (VI16(0x72) != (u16)d->b656_r72 || VI16(0x74) != (u16)d->b656_r74) {
+			VI16(0x72) = (u16)d->b656_r72;
+			VI16(0x74) = (u16)d->b656_r74;
+			d->b656_fixes++;
+		}
+	}
+
+	if (!d->enabled || !d->osd || !d->seq || !d->installed)
 		return;
 	/* field bases (address >> 5 when bit 28 is set); the frame starts at the lower one */
 	tfbl = ((u32)VI16(0x1C) << 16) | VI16(0x1E);

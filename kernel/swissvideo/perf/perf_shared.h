@@ -94,7 +94,17 @@ struct pf_data {
 	unsigned int r_fifo, r_max_fifo, r_slow, r_samples, r_ovl;
 
 	unsigned int retraces;		/* __VIRetraceHandler calls */
-	unsigned int reserved[7];
+	/*
+		BT.656 output (independent of the profiler): after every vertical
+		blank, keep VI DCR FMT = 3 ("debug" = BT.656 on the digital video
+		bus) and the 656 border registers, which make the active line 720
+		samples with black around the game's picture.
+	*/
+	unsigned int bt656;		/* kernel: 1 = on */
+	unsigned int b656_r72;		/* VI 0x72: 0x8000 | HBE656 */
+	unsigned int b656_r74;		/* VI 0x74: HBS656 */
+	unsigned int b656_fixes;	/* times a register had to be put back */
+	unsigned int reserved[3];
 
 	/* 8x8 font for ASCII 0x20..0x5F, written by the kernel */
 	unsigned char font[64][8];

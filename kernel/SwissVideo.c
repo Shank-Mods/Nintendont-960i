@@ -765,6 +765,8 @@ static s32 swv_ovr_swiss;	/* 0 = don't apply the Swiss patches (baseline) */
 static s32 swv_ovr_hrtest = -1;	/* 1280x240p test flags (HR_TEST_*) */
 static s32 swv_ovr_perf = -1;	/* frame-time profiler: 0 = off (default on) */
 static s32 swv_ovr_perfosd = -1;	/* profiler overlay: 0 = log only (default on) */
+static s32 swv_ovr_bt656 = -1;	/* BT.656 digital output: 0 = off (default on in this build) */
+static s32 swv_ovr_bt656hbe = -1, swv_ovr_bt656hbs = -1;	/* 656 active window, VI units */
 static s32 swv_ovr_timing[countof(swv_timing_fields)];
 static s32 swv_ovr_hr_timing[countof(swv_timing_fields)];	/* hr_<field>: 1280x240p */
 
@@ -777,6 +779,9 @@ static void swv_apply_setting(const char *name, u32 n)
 	else if (strcmp(name, "hrtest") == 0)       swv_ovr_hrtest = n;
 	else if (strcmp(name, "perf") == 0)         swv_ovr_perf = n;
 	else if (strcmp(name, "perfosd") == 0)      swv_ovr_perfosd = n;
+	else if (strcmp(name, "bt656") == 0)        swv_ovr_bt656 = n;
+	else if (strcmp(name, "bt656hbe") == 0)     swv_ovr_bt656hbe = n;
+	else if (strcmp(name, "bt656hbs") == 0)     swv_ovr_bt656hbs = n;
 	else if (strcmp(name, "forcevjitter") == 0) swv_ovr_vjitter = n;
 	else if (strcmp(name, "forcevfilter") == 0) swv_ovr_vfilter = n;
 	else if (strcmp(name, "avecompat") == 0)    swv_ovr_avecompat = n;
@@ -813,6 +818,7 @@ static void SwissVideoReadSettings(void)
 
 	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
 	swv_ovr_perf = swv_ovr_perfosd = -1;
+	swv_ovr_bt656 = swv_ovr_bt656hbe = swv_ovr_bt656hbs = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = swv_ovr_hr_timing[i] = -1;
 
@@ -868,6 +874,7 @@ static void SwissVideoReadSettings(void)
 	u32 i;
 	swv_ovr_vmode = swv_ovr_vjitter = swv_ovr_vfilter = swv_ovr_avecompat = swv_ovr_swiss = -1;
 	swv_ovr_perf = swv_ovr_perfosd = -1;
+	swv_ovr_bt656 = swv_ovr_bt656hbe = swv_ovr_bt656hbs = -1;
 	for (i = 0; i < countof(swv_ovr_timing); i++)
 		swv_ovr_timing[i] = swv_ovr_hr_timing[i] = -1;
 }
@@ -1361,29 +1368,51 @@ static const struct { char c; u8 g[8]; } pf_glyphs[] = {
 
 static bool pf_active;
 
+/*
+	BT.656 active window. The SDK programs these (VI 0x72 = 0x8000 | hbeCCIR656,
+	VI 0x74 = hbsCCIR656) only on development hardware with a 656 encoder; the
+	values are in every SDK timing table: 122 and 412 for both 525-line
+	formats (NTSC 480i/240p at 27 MHz, 480p at 54 MHz, and Swiss' 960i, which
+	share hlw 429). That makes the 656 active line 720 samples of the 858 in
+	a line, with the game's 640 pixel picture centred in it and black around
+	it: SMPTE 293M / CEA-861 720x480p horizontal timing.
+*/
+#define BT656_HBE_DEFAULT	122
+#define BT656_HBS_DEFAULT	412
+
 static void SwissVideoPerfInstall(u32 *data, u32 length)
 {
-	u32 *copydisp, *retrace = NULL;
+	u32 *copydisp = NULL, *retrace = NULL;
 	u32 i, j, *blk;
+	bool perf_on, bt656_on, osd_on;
+	u32 hbe, hbs;
 	struct pf_data *d;
 
 	(void)length;
 	pf_active = false;
-	if (swv_ovr_perf == 0) {
-		swv_log("SwissVideo:perf: off (perf=0)\r\n");
-		return;
-	}
-	if (swissSettings.hiRes240p) {
+
+	perf_on = swv_ovr_perf != 0;
+	bt656_on = swv_ovr_bt656 != 0;
+	if (perf_on && swissSettings.hiRes240p) {
 		swv_log("SwissVideo:perf: off (1280x240p hooks GXCopyDisp)\r\n");
-		return;
+		perf_on = false;
 	}
-	if (swv_exp_copydisp_j < 0) {
+	if (perf_on && swv_exp_copydisp_j < 0) {
 		swv_log("SwissVideo:perf: GXCopyDisp not found, profiler off\r\n");
+		perf_on = false;
+	}
+	if (perf_on) {
+		copydisp = Calc_ProperAddress(data, PATCH_DOL, swv_exp_copydisp * sizeof(u32));
+		if (!hr_hookable(copydisp, "GXCopyDisp"))
+			perf_on = false;
+	}
+	if (!perf_on && !bt656_on) {
+		swv_log("SwissVideo:perf: off, bt656: off\r\n");
 		return;
 	}
 #ifndef SWISSVIDEO_HOST_TEST
 	if (ConfigGetConfig(NIN_CFG_CHEATS | NIN_CFG_DEBUGGER)) {
-		swv_log("SwissVideo:perf: off (cheats/debugger use 0x80001000)\r\n");
+		swv_log("SwissVideo:perf/bt656: OFF (cheats/debugger use 0x80001000)\r\n");
 		return;
 	}
 	if (perf_payload_size > PF_PAYLOAD_MAX) {
@@ -1391,16 +1420,22 @@ static void SwissVideoPerfInstall(u32 *data, u32 length)
 		return;
 	}
 #endif
-	copydisp = Calc_ProperAddress(data, PATCH_DOL, swv_exp_copydisp * sizeof(u32));
-	if (!hr_hookable(copydisp, "GXCopyDisp"))
-		return;
-	/* The overlay is drawn after each vertical blank; without the handler it's log only */
+	/* BT.656 and the overlay run after each vertical blank */
 	if (swv_exp_retrace_j >= 0) {
 		retrace = Calc_ProperAddress(data, PATCH_DOL, swv_exp_retrace * sizeof(u32));
 		if (!hr_hookable(retrace, "__VIRetraceHandler"))
 			retrace = NULL;
 	} else
-		swv_log("SwissVideo:perf: __VIRetraceHandler not found, no overlay\r\n");
+		swv_log("SwissVideo:perf: __VIRetraceHandler not found\r\n");
+	if (bt656_on && !retrace) {
+		swv_log("SwissVideo:bt656: ERROR can't hook __VIRetraceHandler, BT.656 NOT enabled\r\n");
+		bt656_on = false;
+	}
+	if (!perf_on && !bt656_on)
+		return;
+	osd_on = perf_on && retrace && swv_ovr_perfosd != 0;
+	hbe = swv_ovr_bt656hbe >= 0 ? (u32)swv_ovr_bt656hbe : BT656_HBE_DEFAULT;
+	hbs = swv_ovr_bt656hbs >= 0 ? (u32)swv_ovr_bt656hbs : BT656_HBS_DEFAULT;
 
 #ifndef SWISSVIDEO_HOST_TEST
 	/* payload in MEM2 */
@@ -1416,8 +1451,11 @@ static void SwissVideoPerfInstall(u32 *data, u32 length)
 			for (j = 0; j < 8; j++)
 				d->font[c - 0x20][j] = pf_glyphs[i].g[j];
 	}
-	d->enabled = 1;
-	d->osd = (swv_ovr_perfosd == 0 || !retrace) ? 0 : 1;
+	d->enabled = perf_on ? 1 : 0;
+	d->osd = osd_on ? 1 : 0;
+	d->bt656 = bt656_on ? 1 : 0;
+	d->b656_r72 = 0x8000 | (hbe & 0x3FF);
+	d->b656_r74 = hbs & 0x3FF;
 	d->magic = PF_MAGIC;
 	sync_after_write(d, sizeof(*d));
 #else
@@ -1438,15 +1476,20 @@ static void SwissVideoPerfInstall(u32 *data, u32 length)
 			jw[3] = 0x4E800420;			/* bctr */
 		}
 	}
-	hr_hook(copydisp, blk + PF_TRAMP_COPYDISP / 4, blk + PF_JMP_COPYDISP / 4, "GXCopyDisp (perf)");
+	if (perf_on)
+		hr_hook(copydisp, blk + PF_TRAMP_COPYDISP / 4, blk + PF_JMP_COPYDISP / 4, "GXCopyDisp (perf)");
 	if (retrace)
-		hr_hook(retrace, blk + PF_TRAMP_RETRACE / 4, blk + PF_JMP_RETRACE / 4, "__VIRetraceHandler (perf)");
+		hr_hook(retrace, blk + PF_TRAMP_RETRACE / 4, blk + PF_JMP_RETRACE / 4, "__VIRetraceHandler (perf/bt656)");
 	sync_after_write(P2C_PTR(blk), 0x40);
 
-	pf_active = true;
-	swv_log("SwissVideo:perf: profiler on, payload %u bytes @ %08X, overlay %s\r\n",
-		perf_payload_size, PF_PAYLOAD_PPC,
-		(swv_ovr_perfosd == 0 || !retrace) ? "off" : "on");
+	pf_active = perf_on;
+	swv_log("SwissVideo:perf: %s, payload %u bytes @ %08X, overlay %s\r\n",
+		perf_on ? "profiler on" : "profiler off", perf_payload_size, PF_PAYLOAD_PPC, osd_on ? "on" : "off");
+	if (bt656_on)
+		swv_log("SwissVideo:bt656: ON - VI DCR format 3 (BT.656), 656 window VI 0x72 = %04X, 0x74 = %04X (hbe %u hbs %u)\r\n",
+			0x8000 | (hbe & 0x3FF), hbs & 0x3FF, hbe, hbs);
+	else
+		swv_log("SwissVideo:bt656: off\r\n");
 }
 
 void SwissVideoPatch(char *Buffer, u32 Length)
@@ -1767,6 +1810,12 @@ void SwissVideoLogVI(void)
 			read16(VI_SNAPSHOT + i + 0xC), read16(VI_SNAPSHOT + i + 0xE));
 	}
 	SwissVideoLogHiRes();
+	{
+		const struct pf_data *d = (const struct pf_data *)PF_DATA_ARM;
+		sync_before_read((void *)d, 0x100);
+		if (d->magic == PF_MAGIC && d->bt656)
+			swv_log("SwissVideo:bt656: retraces %u, registers put back %u times\r\n", d->retraces, d->b656_fixes);
+	}
 	viLogPending = 1;
 }
 
