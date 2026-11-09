@@ -11,6 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Host test of the system clock model and constant scaling
+      # (common/include/SysClockMath.h) against the octest measurements.
+      - name: Clock math unit test
+        run: |
+          cc -O2 -Wall -o "$RUNNER_TEMP/sysclock_test" common/test/sysclock_test.c -lm
+          "$RUNNER_TEMP/sysclock_test"
+
       # Runs a command, and on failure posts the end of its output as an
       # error annotation so it is visible without downloading the logs.
       - name: Set up helper
@@ -76,6 +83,11 @@ jobs:
               $DEVKITARM/bin/arm-none-eabi-gcc --version | head -1
               # Experiments build: reads /nin960i_vi.txt and /nin960i_ave.txt
               make NIN960I_EXPERIMENTS=1
+              echo "=== KERNELSIZE ==="
+              $DEVKITARM/bin/arm-none-eabi-size -A kernel/kernel.elf | grep -E "^\.(init|text|rodata|data|bss)"
+              grep -E "__bss_start|__bss_end" kernel/kernel.map | head -4
+              $DEVKITARM/bin/arm-none-eabi-nm -S --size-sort kernel/kernel.elf | tail -6
+              echo "=== END KERNELSIZE ==="
               dir=out/experiments/apps/Nintendont-960i-experiments
               mkdir -p out/experiments/apps
               cp -r nintendont "$dir"
