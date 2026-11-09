@@ -299,18 +299,35 @@ static inline u32 clear32(u32 addr, u32 clear)
 	return data;
 }
 
+/* The Starlet timer (HW_TIMER) ticks at sysclk/128. All the tick constants in
+ * Nintendont assume the stock 243 MHz (1898437.5 ticks/s), so the helpers
+ * below hand out "stock ticks": raw ticks scaled by g_TickMul (Q16, set up by
+ * SysClockInit() from the real system clock). At stock it is 0x10000 and
+ * every helper behaves exactly as before. */
+extern u32 g_SysClockHz;
+extern u32 g_TickMul;
+
+static inline u32 NormTicks(u32 raw)
+{
+	u64 n;
+	if (g_TickMul == 0x10000)
+		return raw;
+	n = ((u64)raw * g_TickMul) >> 16;
+	return (n > UINT_MAX) ? UINT_MAX : (u32)n;
+}
+
 static inline u32 TicksToSecs(u32 time)
 {
 	//really accurate, it reports the first second is over about 0.5ms early and
 	//with a full 37.7 minutes difference its off by only about 0.7ms
-	return ((time >> 9)*283)>>20;
+	return ((NormTicks(time) >> 9)*283)>>20;
 }
 
 static inline u32 TimerDiffTicks(u32 time)
 {
 	u32 curtime = read32(HW_TIMER);
 	if(time > curtime) return UINT_MAX; //wrapped, return UINT_MAX to reset
-	return curtime - time;
+	return NormTicks(curtime - time);
 }
 
 static inline u32 TimerDiffSeconds(u32 time)

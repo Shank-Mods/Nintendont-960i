@@ -359,7 +359,7 @@ void SOCKUpdateRegisters()
 				IOS_IoctlAsync(sockFd, ioctl, SOParams[i], 8, NULL, 0, sockqueue, sockmsg[i]);
 				break;
 			case so_poll:
-				time = (read64((u32)(&sock_entry_arm[i].cmd2)) / 60750ULL);
+				time = (read64((u32)(&sock_entry_arm[i].cmd2)) / (u64)(g_SysClockHz / 4000));
 				SOParams[i][0] = (u32)(time>>32);
 				SOParams[i][1] = (u32)(time&0xFFFF);
 				SOOutParams[i][0] = sock_entry_arm[i].cmd0&(~(1<<31));

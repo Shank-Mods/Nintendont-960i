@@ -38,6 +38,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "TRI.h"
 #include "Patch.h"
 #include "SwissVideo.h"
+#include "SysClock.h"
 
 #include "diskio.h"
 #include "usbstorage.h"
@@ -108,6 +109,9 @@ int _main( int argc, char *argv[] )
 	}
 
 	thread_set_priority( 0, 0x50 );
+
+	//work out the real system clock before anything uses timers
+	SysClockInit();
 
 	//Early HID for loader
 	HIDInit();

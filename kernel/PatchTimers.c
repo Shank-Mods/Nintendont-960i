@@ -20,6 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "common.h"
 #include "string.h"
 #include "PatchTimers.h"
+#include "SysClock.h"
+#include "../common/include/SysClockMath.h"
 
 extern u32 isKirby;
 extern u32 isdisneyskt;
@@ -65,62 +67,113 @@ static u32 CheckFor( u32 Buf, u32 Val )
 }
 //Bus speed
 #define U32_TIMER_CLOCK_BUS_GC		0x09a7ec80
-#define U32_TIMER_CLOCK_BUS_WII		0x0e7be2c0
+#define U32_TIMER_CLOCK_BUS_WII_STOCK		0x0e7be2c0
 
 #define FLT_TIMER_CLOCK_BUS_GC		0x4d1a7ec8
-#define FLT_TIMER_CLOCK_BUS_WII		0x4d67be2c
+#define FLT_TIMER_CLOCK_BUS_WII_STOCK		0x4d67be2c
 
 //Processor speed
 #define U32_TIMER_CLOCK_CPU_GC		0x1cf7c580
-#define U32_TIMER_CLOCK_CPU_WII		0x2b73a840
+#define U32_TIMER_CLOCK_CPU_WII_STOCK		0x2b73a840
 //WiiU with 5x CPU Multi
 #define U32_TIMER_CLOCK_CPU_FAST	0x486b6dc0
 
 #define FLT_TIMER_CLOCK_CPU_GC		0x4de7be2c
-#define FLT_TIMER_CLOCK_CPU_WII		0x4e2dcea1
+#define FLT_TIMER_CLOCK_CPU_WII_STOCK		0x4e2dcea1
 //WiiU with 5x CPU Multi
 #define FLT_TIMER_CLOCK_CPU_FAST	0x4e90d6dc
 
 //Ticks per second
 #define U32_TIMER_CLOCK_SECS_GC		0x0269fb20
-#define U32_TIMER_CLOCK_SECS_WII	0x039ef8b0
+#define U32_TIMER_CLOCK_SECS_WII_STOCK	0x039ef8b0
 
 #define FLT_TIMER_CLOCK_SECS_GC		0x4c1a7ec8
-#define FLT_TIMER_CLOCK_SECS_WII	0x4c67be2c
+#define FLT_TIMER_CLOCK_SECS_WII_STOCK	0x4c67be2c
 
 //Ticks per second divided by 60
 #define U32_TIMER_CLOCK_60HZ_GC		0x000a4cb8
-#define U32_TIMER_CLOCK_60HZ_WII	0x000f7314
+#define U32_TIMER_CLOCK_60HZ_WII_STOCK	0x000f7314
 
 //1 divided by Ticks per second
 #define FLT_ONE_DIV_CLOCK_SECS_GC	0x32d418df
-#define FLT_ONE_DIV_CLOCK_SECS_WII	0x328d65ea
+#define FLT_ONE_DIV_CLOCK_SECS_WII_STOCK	0x328d65ea
 
 //Ticks per millisecond
 #define U32_TIMER_CLOCK_MSECS_GC	0x00009e34
-#define U32_TIMER_CLOCK_MSECS_WII	0x0000ed4e
+#define U32_TIMER_CLOCK_MSECS_WII_STOCK	0x0000ed4e
 
 #define FLT_TIMER_CLOCK_MSECS_GC	0x471e3400
-#define FLT_TIMER_CLOCK_MSECS_WII	0x476d4e00
+#define FLT_TIMER_CLOCK_MSECS_WII_STOCK	0x476d4e00
 
 //1 divided by Ticks per millisecond
 #define FLT_ONE_DIV_CLOCK_MSECS_GC	0x37cf204a
-#define FLT_ONE_DIV_CLOCK_MSECS_WII	0x378a1586
+#define FLT_ONE_DIV_CLOCK_MSECS_WII_STOCK	0x378a1586
 
 //RADTimerRead, Multiplier so (GC / 1.5)
 #define U32_TIMER_CLOCK_RAD_GC		0xcf2049a1
-#define U32_TIMER_CLOCK_RAD_WII		0x8a15866c
+#define U32_TIMER_CLOCK_RAD_WII_STOCK		0x8a15866c
 
 //1 divided by one 1200th of a second
 #define FLT_ONE_DIV_CLOCK_1200_GC	0x37f88d25
-#define FLT_ONE_DIV_CLOCK_1200_WII	0x37a5b36e
+#define FLT_ONE_DIV_CLOCK_1200_WII_STOCK	0x37a5b36e
 
 //osGetCount, Multiplier so (GC / 1.5f)
 #define DBL_1_1574		0x3ff284b5dcc63f14ull
 #define DBL_0_7716		0x3fe8b0f27bb2fec5ull
 
+
+/* Clock-aware: the _WII values the patches write are the stock 243 MHz ones
+ * scaled to the real system clock (identical at stock, see SysClockMath.h). */
+static struct
+{
+	u32 u_bus, u_cpu, u_secs, u_60hz, u_msecs, u_rad;
+	u32 f_bus, f_cpu, f_secs, f_msecs, f_1s, f_1ms, f_1200;
+	u64 d_new;	//Majora's Mask osGetCount multiplier
+	u32 pdp;	//Panel de Pon
+} tc;
+static bool tcReady = false;
+
+static void TimerConstsInit(void)
+{
+	u32 hz = g_SysClockHz;
+	tc.u_bus   = SysClkScale(U32_TIMER_CLOCK_BUS_WII_STOCK, hz);
+	tc.u_cpu   = SysClkScale(U32_TIMER_CLOCK_CPU_WII_STOCK, hz);
+	tc.u_secs  = SysClkScale(U32_TIMER_CLOCK_SECS_WII_STOCK, hz);
+	tc.u_60hz  = SysClkScale(U32_TIMER_CLOCK_60HZ_WII_STOCK, hz);
+	tc.u_msecs = SysClkScale(U32_TIMER_CLOCK_MSECS_WII_STOCK, hz);
+	tc.u_rad   = SysClkScaleInv(U32_TIMER_CLOCK_RAD_WII_STOCK, hz);
+	tc.f_bus   = SysClkScaleFloatBits(FLT_TIMER_CLOCK_BUS_WII_STOCK, hz, SYSCLK_STOCK_HZ);
+	tc.f_cpu   = SysClkScaleFloatBits(FLT_TIMER_CLOCK_CPU_WII_STOCK, hz, SYSCLK_STOCK_HZ);
+	tc.f_secs  = SysClkScaleFloatBits(FLT_TIMER_CLOCK_SECS_WII_STOCK, hz, SYSCLK_STOCK_HZ);
+	tc.f_msecs = SysClkScaleFloatBits(FLT_TIMER_CLOCK_MSECS_WII_STOCK, hz, SYSCLK_STOCK_HZ);
+	tc.f_1s    = SysClkScaleFloatBits(FLT_ONE_DIV_CLOCK_SECS_WII_STOCK, SYSCLK_STOCK_HZ, hz);
+	tc.f_1ms   = SysClkScaleFloatBits(FLT_ONE_DIV_CLOCK_MSECS_WII_STOCK, SYSCLK_STOCK_HZ, hz);
+	tc.f_1200  = SysClkScaleFloatBits(FLT_ONE_DIV_CLOCK_1200_WII_STOCK, SYSCLK_STOCK_HZ, hz);
+	tc.d_new   = SysClkScaleDoubleBits(DBL_0_7716, SYSCLK_STOCK_HZ, hz);
+	tc.pdp     = SysClkScale(0x1194, hz);
+	tcReady = true;
+	if(hz != SYSCLK_STOCK_HZ)
+		dbgprintf("PatchTimers:Using %u Hz bus, %u Hz CPU for game timers\r\n", tc.u_bus, tc.u_cpu);
+}
+
+#define U32_TIMER_CLOCK_BUS_WII		(tc.u_bus)
+#define U32_TIMER_CLOCK_CPU_WII		(tc.u_cpu)
+#define U32_TIMER_CLOCK_SECS_WII	(tc.u_secs)
+#define U32_TIMER_CLOCK_60HZ_WII	(tc.u_60hz)
+#define U32_TIMER_CLOCK_MSECS_WII	(tc.u_msecs)
+#define U32_TIMER_CLOCK_RAD_WII		(tc.u_rad)
+#define FLT_TIMER_CLOCK_BUS_WII		(tc.f_bus)
+#define FLT_TIMER_CLOCK_CPU_WII		(tc.f_cpu)
+#define FLT_TIMER_CLOCK_SECS_WII	(tc.f_secs)
+#define FLT_TIMER_CLOCK_MSECS_WII	(tc.f_msecs)
+#define FLT_ONE_DIV_CLOCK_SECS_WII	(tc.f_1s)
+#define FLT_ONE_DIV_CLOCK_MSECS_WII	(tc.f_1ms)
+#define FLT_ONE_DIV_CLOCK_1200_WII	(tc.f_1200)
+
 bool PatchTimers(u32 FirstVal, u32 Buffer, bool checkFloats)
 {
+	if(!tcReady)
+		TimerConstsInit();
 	/* The floats in the data sections */
 	if(checkFloats)
 	{
@@ -173,7 +226,7 @@ bool PatchTimers(u32 FirstVal, u32 Buffer, bool checkFloats)
 	/* For Nintendo Puzzle Collection */
 	if( FirstVal == 0x38C00BB8 && (u32)Buffer == 0x770528 )
 	{	//it IS a smooth 1.5 BUT the game is actually not properly timed, good job devs
-		write32(Buffer, 0x38C01194);
+		write32(Buffer, 0x38C00000 | tc.pdp);
 		dbgprintf("PatchTimers:[Timer Clock Panel de Pon] applied (0x%08X)\r\n", Buffer );
 		return true;
 	}
@@ -425,6 +478,8 @@ static u32 smc_pal50_arr_wii[11] =
 
 void PatchStaticTimers()
 {
+	if(!tcReady)
+		TimerConstsInit();
 	sync_before_read((void*)0xE0, 0x20);
 	write32(0xF8, U32_TIMER_CLOCK_BUS_WII);
 	if(IsWiiUFastCPU())
@@ -432,19 +487,19 @@ void PatchStaticTimers()
 	else
 		write32(0xFC, U32_TIMER_CLOCK_CPU_WII);
 	sync_after_write((void*)0xE0, 0x20);
-	if(write64A(0x001463E0, DBL_0_7716, DBL_1_1574))
+	if(write64A(0x001463E0, tc.d_new, DBL_1_1574))
 	{
 		#ifdef DEBUG_PATCH
 		dbgprintf("PatchTimers:[Majoras Mask NTSC-J] applied\r\n");
 		#endif
 	}
-	else if(write64A(0x00141C00, DBL_0_7716, DBL_1_1574))
+	else if(write64A(0x00141C00, tc.d_new, DBL_1_1574))
 	{
 		#ifdef DEBUG_PATCH
 		dbgprintf("PatchTimers:[Majoras Mask NTSC-U] applied\r\n");
 		#endif
 	}
-	else if(write64A(0x00130860, DBL_0_7716, DBL_1_1574))
+	else if(write64A(0x00130860, tc.d_new, DBL_1_1574))
 	{
 		#ifdef DEBUG_PATCH
 		dbgprintf("PatchTimers:[Majoras Mask PAL] applied\r\n");

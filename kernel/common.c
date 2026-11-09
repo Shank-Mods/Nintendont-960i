@@ -196,7 +196,7 @@ void wait_for_ppc(u8 multi)
 	udelay(45*multi);
 }
 
-static u32 timeBase = 0, timeStarlet = 0, wrappedAround = 0;
+static u32 timeBase = 0, timeStarlet = 0, wrappedAround = 0, wrapFrac = 0;
 void InitCurrentTime()
 {
 	//get current time since 1970 from loader
@@ -216,14 +216,25 @@ u32 GetCurrentTime()
 	{
 		//counter some inaccuracy, will be behind by 1 second every
 		//19 wraps (nearly half a day, good enough)
-		wrappedAround++;
-		if(wrappedAround == 3)
+		if(g_TickMul != 0x10000)
 		{
-			timeBase += 2263;
-			wrappedAround = 0;
+			/* overclocked: the 32 bit counter wraps every 2^39/sysclk
+			 * seconds (2262.3 at stock), keep the fraction in 1/256 s */
+			wrapFrac += (u32)((1ull << 47) / g_SysClockHz);
+			timeBase += wrapFrac >> 8;
+			wrapFrac &= 0xFF;
 		}
 		else
-			timeBase += 2262;
+		{
+			wrappedAround++;
+			if(wrappedAround == 3)
+			{
+				timeBase += 2263;
+				wrappedAround = 0;
+			}
+			else
+				timeBase += 2262;
+		}
 #ifdef DEBUG_TIME
 		dbgprintf("Time:Wrap with %u seconds and %u ticks\r\n",timeBase,curtime);
 #endif

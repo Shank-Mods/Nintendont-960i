@@ -41,6 +41,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "Patches.h"
 #include "kernel_zip.h"
 #include "kernelboot_bin.h"
+#include "../../common/include/SysClockMath.h"
 #include "multidol_ldr_bin.h"
 #include "stub_bin.h"
 #include "IOSInterface_bin.h"
@@ -623,6 +624,18 @@ int main(int argc, char **argv)
 		u32 u;
 		//Disables MEMPROT for patches
 		write16(MEM_PROT, 0);
+		//Overclocked console (WiiOverclock/mini)? Tell libogc the real bus clock
+		//so the loader's own delays are right. Games get theirs from the kernel.
+		if(!IsWiiU())
+		{
+			u32 hz = SysClkFromPLL(*(vu32*)0xCD8001B0, *(vu32*)0xCD8001B4, *(vu32*)0xCD800214);
+			if(hz != SYSCLK_STOCK_HZ)
+			{
+				gprintf("System clock %u Hz\r\n", hz);
+				*(vu32*)0x800000F8 = hz;
+				*(vu32*)0x800000FC = hz * 3;
+			}
+		}
 		//Patches FS access
 		for( u = 0x93A00000; u < 0x94000000; u+=2 )
 		{
