@@ -97,6 +97,14 @@ jobs:
               cp -r nintendont "$dir"
               sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i (test build)</name>|; s|<short_description>Gamecube Loader</short_description>|<short_description>GameCube loader with Swiss video patches (960i, 240p, ...)</short_description>|" "$dir/meta.xml"
               cp kernel/swissvideo/release/README_960i.txt out/test/
+              # A/B build: the experiments build with the clock-aware changes switched off
+              make clean > /dev/null
+              make NIN960I_EXPERIMENTS=1 CLOCKAWARE_OFF=1
+              dir=out/experiments-noclock/apps/Nintendont-960i-experiments-noclock
+              mkdir -p out/experiments-noclock/apps
+              cp -r nintendont "$dir"
+              sed -i "s|<name>Nintendont</name>|<name>Nintendont 960i (experiments, clock-aware OFF)</name>|" "$dir/meta.xml"
+              cp kernel/swissvideo/ave/nin960i_ave.txt kernel/swissvideo/ave/nin960i_vi.txt out/experiments-noclock/
               grep -h "<name>" out/*/apps/*/meta.xml'
 
       - uses: actions/upload-artifact@v4
@@ -109,3 +117,7 @@ jobs:
           name: nintendont-960i-experiments
           path: out/experiments/
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nintendont-960i-experiments-noclock
+          path: out/experiments-noclock/

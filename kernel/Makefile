@@ -73,6 +73,10 @@ ifneq ($(NIN960I_EXPERIMENTS),)
 SwissVideo.o: CFLAGS += -DNIN960I_EXPERIMENTS
 SwissVideo.o: FORCE
 endif
+# A/B test: switch off the clock-aware timing (make CLOCKAWARE_OFF=1)
+ifneq ($(CLOCKAWARE_OFF),)
+SysClock.o: CFLAGS += -DCLOCKAWARE_OFF
+endif
 ifneq ($(SWISSVIDEO_AVE),)
 SwissVideo.o: CFLAGS += -DSWISSVIDEO_AVE_COMPAT=$(SWISSVIDEO_AVE)
 SwissVideo.o: FORCE

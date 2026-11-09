@@ -626,6 +626,7 @@ int main(int argc, char **argv)
 		write16(MEM_PROT, 0);
 		//Overclocked console (WiiOverclock/mini)? Tell libogc the real bus clock
 		//so the loader's own delays are right. Games get theirs from the kernel.
+#ifndef CLOCKAWARE_OFF
 		if(!IsWiiU())
 		{
 			u32 hz = SysClkFromPLL(*(vu32*)0xCD8001B0, *(vu32*)0xCD8001B4, *(vu32*)0xCD800214);
@@ -636,6 +637,7 @@ int main(int argc, char **argv)
 				*(vu32*)0x800000FC = hz * 3;
 			}
 		}
+#endif
 		//Patches FS access
 		for( u = 0x93A00000; u < 0x94000000; u+=2 )
 		{

@@ -34,6 +34,10 @@ CFLAGS	:= -O3 -g -std=gnu89 -Wno-format-truncation \
 ifneq ($(NIN960I_EXPERIMENTS),)
 CFLAGS	+= -DNIN960I_EXPERIMENTS
 endif
+# A/B test: switch off the clock-aware timing (make CLOCKAWARE_OFF=1)
+ifneq ($(CLOCKAWARE_OFF),)
+CFLAGS	+= -DCLOCKAWARE_OFF
+endif
 CXXFLAGS := $(CFLAGS)
 
 # NOTE: Do NOT change to := - needed for proper expansion of $(CURDIR) later.

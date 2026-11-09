@@ -26,8 +26,10 @@ void SysClockInit(void)
 	u32 hz = SYSCLK_STOCK_HZ;
 
 	/* vWii has its own fixed clock tree, the Wii's PLL registers mean nothing there */
+#ifndef CLOCKAWARE_OFF
 	if (!IsWiiU())
 		hz = SysClkFromPLL(sys, ext, ver);
+#endif
 
 	g_SysClockHz = hz;
 	g_TickMul = SysClkTickMul(hz);
