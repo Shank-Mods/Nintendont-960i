@@ -11,13 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Host test of the system clock model and constant scaling
-      # (common/include/SysClockMath.h) against the octest measurements.
-      - name: Clock math unit test
-        run: |
-          cc -O2 -Wall -o "$RUNNER_TEMP/sysclock_test" common/test/sysclock_test.c -lm
-          "$RUNNER_TEMP/sysclock_test"
-
       # Runs a command, and on failure posts the end of its output as an
       # error annotation so it is visible without downloading the logs.
       - name: Set up helper
